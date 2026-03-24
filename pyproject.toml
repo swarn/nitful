@@ -1,0 +1,10 @@
+[project]
+authors = [{name = "Seth Warn", email = "swarn@uark.edu"}]
+dependencies = []
+name = "biif"
+requires-python = ">= 3.12"
+version = "0.1.0"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
