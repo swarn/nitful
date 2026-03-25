@@ -31,8 +31,8 @@ NITF
 1
 >>> nitf.image_segments[0].IREP
 MONO
->>> type(nitf.data_segments[2])
-<class 'biif.models.extensions.csephb.CSEPHB'>
+>>> nitf.data_segments[2].DESID
+CSEPHB
 >>> nitf.data_segments[2].ephemerides[0]
 [-2370745.44, -3762357.23, 4863859.91]
 >>> biif.dump(nitf)

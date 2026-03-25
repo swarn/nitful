@@ -23,10 +23,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import KW_ONLY, dataclass, field, fields
 from dataclasses import Field as DataclassField
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timezone
 from decimal import Decimal
-from enum import Enum
-from typing import Any, BinaryIO, ClassVar, Literal, Protocol, cast, override
+from enum import IntEnum, StrEnum
+from typing import Any, BinaryIO, ClassVar, Literal, Protocol, TypeGuard, cast, override
 from uuid import UUID
 
 from .validator import Validator
@@ -38,6 +38,10 @@ class Field:
 
     name: str
     value: bytes | StreamablePayload
+
+
+def field_size(fields: list[Field]) -> int:
+    return sum(len(f.value) for f in fields)
 
 
 class StreamablePayload(Protocol):
@@ -89,7 +93,7 @@ class Spec[T](ABC):
 
 
 @dataclass
-class FieldSpec[T](Spec):
+class FieldSpec[T](Spec[T], ABC):
     """A specification for a single NITF field.
 
     These are the "leaves" of our syntax tree: they are responsible for actual
@@ -116,11 +120,16 @@ class FieldSpec[T](Spec):
     @override
     def to_fields(self, value: T) -> list[Field]:
         if self.validate and not self.validate(value):
-            raise RuntimeError()
+            msg = f"Invalid value {value} for '{self.name}'"
+            raise RuntimeError(msg)
 
         encoded = self.encode(value)
         if len(encoded) != self.size:
-            raise RuntimeError()
+            msg = (
+                f"Encoding error in '{self.name}': Expected {self.size} bytes, "
+                f"but got {len(encoded)} bytes (Payload: {encoded!r})"
+            )
+            raise RuntimeError(msg)
 
         return [Field(self.name, encoded)]
 
@@ -223,7 +232,7 @@ class EcsString(FieldSpec[str]):
 
 
 @dataclass
-class BcsIntEnum[T: Enum](FieldSpec[T]):
+class BcsIntEnum[T: IntEnum](FieldSpec[T]):
     """An integer enumeration in the NITF spec.
 
     The `enum` argument is a Python `Enum` that defines the valid integers and
@@ -244,7 +253,7 @@ class BcsIntEnum[T: Enum](FieldSpec[T]):
 
 
 @dataclass
-class EcsStringEnum[T: Enum](FieldSpec[T]):
+class EcsStringEnum[T: StrEnum](FieldSpec[T]):
     """A string enumeration with ECS characters in the NITF spec.
 
     The `enum` argument is a Python `Enum` that defines the valid strings and
@@ -265,7 +274,7 @@ class EcsStringEnum[T: Enum](FieldSpec[T]):
 
 
 @dataclass
-class BcsStringEnum[T: Enum](FieldSpec[T]):
+class BcsStringEnum[T: StrEnum](FieldSpec[T]):
     """A string enumeration with BCS characters in the NITF spec.
 
     The `enum` argument is a Python `Enum` that defines the valid strings and
@@ -286,7 +295,7 @@ class BcsStringEnum[T: Enum](FieldSpec[T]):
 
 
 @dataclass
-class Fixed[T: float | Decimal](FieldSpec[T]):
+class Fixed(FieldSpec[float]):
     """A fixed-point float."""
 
     _: KW_ONLY
@@ -297,18 +306,38 @@ class Fixed[T: float | Decimal](FieldSpec[T]):
     # The number of digits after the decimal point.
     ndigits: int = 2
 
-    # The Python representation: float or Decimal.
-    kind: type[T] = cast(type[T], float)
-
     @override
-    def encode(self, decoded: T) -> bytes:
+    def encode(self, decoded: float) -> bytes:
         plus = "+" if self.sign else ""
         format_str = f"{plus}0{self.size}.{self.ndigits}f"
         return format(decoded, format_str).encode()
 
     @override
-    def decode(self, encoded: bytes) -> T:
-        return self.kind(encoded.decode().strip())
+    def decode(self, encoded: bytes) -> float:
+        return float(encoded.decode().strip())
+
+
+@dataclass
+class FixedDecimal(FieldSpec[Decimal]):
+    """A fixed-point float."""
+
+    _: KW_ONLY
+
+    # Always show the sign for positive or negative numbers.
+    sign: bool = False
+
+    # The number of digits after the decimal point.
+    ndigits: int = 2
+
+    @override
+    def encode(self, decoded: Decimal) -> bytes:
+        plus = "+" if self.sign else ""
+        format_str = f"{plus}0{self.size}.{self.ndigits}f"
+        return format(decoded, format_str).encode()
+
+    @override
+    def decode(self, encoded: bytes) -> Decimal:
+        return Decimal(encoded.decode().strip())
 
 
 @dataclass
@@ -322,12 +351,10 @@ class HexColor(FieldSpec[tuple[int, int, int]]):
 
     @override
     def decode(self, encoded: bytes) -> tuple[int, int, int]:
-        result = tuple(encoded)
+        if len(encoded) != self.size:
+            raise RuntimeError
 
-        if len(result) != 3:
-            raise RuntimeError()
-
-        return result
+        return encoded[0], encoded[1], encoded[2]
 
 
 @dataclass
@@ -383,13 +410,17 @@ class ConcatDatetime(FieldSpec[datetime]):
     size: int = field(default=14, init=False)
     format: str = field(default="%Y%m%d%H%M%S", init=False)
 
+    _: KW_ONLY
+
+    tz: timezone = UTC
+
     @override
     def encode(self, decoded: datetime) -> bytes:
         return decoded.strftime(self.format).encode()
 
     @override
     def decode(self, encoded: bytes) -> datetime:
-        return datetime.strptime(encoded.decode(), self.format)
+        return datetime.strptime(encoded.decode(), self.format).replace(tzinfo=self.tz)
 
 
 @dataclass
@@ -425,28 +456,34 @@ class BinaryInt(FieldSpec[int]):
 
 
 @dataclass
-class Constant[T](Spec[None]):
+class Constant[T](Spec[T]):
     """A wrapper that supplies and expects a specific value."""
 
     spec: FieldSpec[T]
     value: T
 
-    @property
-    def name(self) -> str:
-        return self.spec.name
+    name: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.name = self.spec.name
 
     @override
-    def read(self, fd: BinaryIO) -> None:
+    def read(self, fd: BinaryIO) -> T:
         parsed = self.spec.read(fd)
         if parsed != self.value:
-            raise ValueError(
+            msg = (
                 f"Constant mismatch for '{self.name}': "
                 f"expected {self.value!r}, got {parsed!r}"
             )
-        return None
+            raise ValueError(msg)
+        return self.value
 
     @override
-    def to_fields(self, value: Any = None) -> list[Field]:
+    def to_fields(self, value: T | None = None) -> list[Field]:
+        if value is not None and value != self.value:
+            msg = f"Cannot override constant '{self.name}' with {value!r}."
+            raise ValueError(msg)
+
         return self.spec.to_fields(self.value)
 
 
@@ -461,7 +498,7 @@ class Marker(Spec[None]):
         return None
 
     @override
-    def to_fields(self, value: Any = None) -> list[Field]:
+    def to_fields(self, value: None = None) -> list[Field]:
         return [Field(self.name, b"")]
 
 
@@ -477,16 +514,9 @@ class ListRecord[T](Spec[list[T]]):
 
     @override
     def to_fields(self, value: list[T]) -> list[Field]:
-        if len(value) != len(self.specs):
-            msg = (
-                f"ListRecord expects {len(self.specs)} values, "
-                f"but got {len(value)}."
-            )
-            raise ValueError(msg)
+        fields: list[Field] = []
 
-        fields = []
-
-        for spec, v in zip(self.specs, value):
+        for spec, v in zip(self.specs, value, strict=True):
             fields.extend(spec.to_fields(v))
 
         return fields
@@ -507,9 +537,10 @@ class FixedLengthList[T](Spec[list[T]]):
     @override
     def to_fields(self, value: list[T]) -> list[Field]:
         if len(value) != self.count:
-            raise RuntimeError(f"Expected {self.count} items, got {len(value)}")
+            msg = f"Expected {self.count} items, got {len(value)}"
+            raise RuntimeError(msg)
 
-        fields = []
+        fields: list[Field] = []
 
         for i, val in enumerate(value):
             for f in self.kind.to_fields(val):
@@ -563,13 +594,16 @@ class DataclassRecord[T: DataclassProtocol](Spec[T]):
 
     @override
     def read(self, fd: BinaryIO) -> T:
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
 
         for spec in self.specs:
             spec.read_into(fd, kwargs)
 
         valid_model_fields = {f.name for f in fields(self.model_cls)}
-        kwargs = {k: v for k, v in kwargs.items() if k in valid_model_fields}
+
+        for k in list(kwargs.keys()):
+            if k not in valid_model_fields:
+                del kwargs[k]
 
         return self.model_cls(**kwargs)
 
@@ -577,30 +611,31 @@ class DataclassRecord[T: DataclassProtocol](Spec[T]):
     def to_fields(self, value: T) -> list[Field]:
         val_dict = vars(value)
 
-        out_fields = []
+        out_fields: list[Field] = []
         for spec in self.specs:
             out_fields.extend(spec.fields_from(val_dict))
 
         return out_fields
 
-    def matches(self, value: Any) -> bool:
+    def matches(self, value: object) -> TypeGuard[T]:
         return isinstance(value, self.model_cls)
 
 
 @dataclass
-class VariantRecord[TagType, PayloadType](Spec[PayloadType]):
+class VariantRecord[TagType, PayloadType: DataclassProtocol](Spec[PayloadType]):
     """A discriminated union of `DataclassRecord` specs."""
 
     name: str
     tag_spec: FieldSpec[TagType]
-    cases: dict[TagType, DataclassRecord[Any]]
+    cases: dict[TagType, DataclassRecord[PayloadType]]
 
     @override
     def read(self, fd: BinaryIO) -> PayloadType:
         tag = self.tag_spec.read(fd)
 
         if tag not in self.cases:
-            raise ValueError(f"Unrecognized tag {tag!r} in VariantRecord '{self.name}'")
+            msg = f"Unrecognized tag {tag!r} in VariantRecord '{self.name}'"
+            raise ValueError(msg)
 
         parser = self.cases[tag]
         return parser.read(fd)
@@ -613,22 +648,20 @@ class VariantRecord[TagType, PayloadType](Spec[PayloadType]):
         for tag, spec in self.cases.items():
             if spec.matches(value):
                 tag_to_write = tag
-                spec_to_use = spec
-                break
 
         if tag_to_write is None:
-            raise TypeError(
-                f"Could not map payload of type {type(value).__name__} to a known tag "
-                f"in VariantRecord '{self.name}'. Did you pass the wrong dataclass instance?"
-            )
+            cname = type(value).__name__
+            msg = f"Unexpected class {cname} for VariantRecord '{self.name}'"
+            raise TypeError(msg)
 
+        spec_to_use = self.cases[tag_to_write]
         fields = self.tag_spec.to_fields(tag_to_write)
         fields.extend(spec_to_use.to_fields(value))
 
         return fields
 
 
-class InlineGroup(Spec[dict[str, Any]]):
+class InlineGroup(Spec[dict[str, Any]], ABC):
     """Parse specs into a dict rather than a single value.
 
     Mostly used as a structural element to bring elements into a parent spec.
@@ -668,7 +701,7 @@ class Block(InlineGroup):
 
     @override
     def fields_from(self, values: dict[str, Any]) -> list[Field]:
-        fields = []
+        fields: list[Field] = []
 
         for spec in self.specs:
             fields.extend(spec.fields_from(values))

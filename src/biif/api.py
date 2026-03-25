@@ -5,7 +5,7 @@ from ._dsl.io import dump_fields as _dump_fields
 from ._dsl.io import write_fields as _write_fields
 from ._format.file import read_file as _read_format
 from ._format.file import to_fields as _to_fields
-from .models.core import BIIF
+from .models.file import BIIF
 
 
 def read(fd: BinaryIO) -> BIIF:

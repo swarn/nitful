@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from enum import Enum
-from uuid import UUID
+from enum import IntEnum
+from uuid import UUID as UUID_T
 
-from biif.models.core import Security
-from biif.models.des import DES
+from biif.models.common import DES, Security
 from biif.models.eci import ECI
 
 type Array2D = list[list[float]]
@@ -20,7 +19,7 @@ class CSEPHB(DES):
     security: Security
 
     # An ID for this DES.
-    UUID: UUID
+    UUID: UUID_T
 
     # A list of image segments associated with this DES, identified by display
     # level. If empty, this DES applies to all image segments.
@@ -28,7 +27,7 @@ class CSEPHB(DES):
 
     # A list of associated elements, primarily the IMAGE_UUID from the
     # associated CSEXRB TRE.
-    associated_elements: list[UUID]
+    associated_elements: list[UUID_T]
 
     # True if good, false if suspect.
     QUAL_FLAG_EPH: Quality
@@ -56,12 +55,12 @@ class CSEPHB(DES):
     acceleration: Array2D | None = None
 
 
-class Quality(Enum):
+class Quality(IntEnum):
     SUSPECT = 0
     GOOD = 1
 
 
-class InterpolationType(Enum):
+class InterpolationType(IntEnum):
     NEAREST = 0
     LINEAR = 1
     LAGRANGIAN = 2
@@ -82,7 +81,7 @@ class Lagrangian:
     INTERP_ORDER_EPH: int
 
 
-class Frame(Enum):
+class Frame(IntEnum):
     ECI = 0
     ECF = 1
 
@@ -92,7 +91,7 @@ class ECF:
     pass
 
 
-class EphemerisSource(Enum):
+class EphemerisSource(IntEnum):
     PREDICTED = 0
     ACTUAL = 1
     REFINED = 2

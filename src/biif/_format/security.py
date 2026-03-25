@@ -1,7 +1,9 @@
-from biif._dsl.spec import EcsString, EcsStringEnum
-from biif.models.core import SecurityClass
+from typing import Any
 
-security_spec = [
+from biif._dsl.spec import EcsString, EcsStringEnum, Spec
+from biif.models.common import SecurityClass
+
+security_spec: list[Spec[Any]] = [
     EcsStringEnum("SCLAS", 1, enum=SecurityClass),
     EcsString("SCLSY", 2),
     EcsString("SCODE", 11),

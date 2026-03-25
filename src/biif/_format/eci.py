@@ -5,12 +5,13 @@ significant digits than can be represented with a double-precision float.
 """
 
 from decimal import Decimal
+from typing import Any
 
-from biif._dsl.spec import Fixed
+from biif._dsl.spec import Fixed, FixedDecimal, Spec
 from biif._dsl.validator import Range
 
-eci_spec = [
-    Fixed("TA_POLE", 19, Range(Decimal(2e6), Decimal(3e6)), ndigits=11, kind=Decimal),
+eci_spec: list[Spec[Any]] = [
+    FixedDecimal("TA_POLE", 19, Range(Decimal("2e6"), Decimal("3e6")), ndigits=11),
     Fixed("A_POLE", 11, Range(-1.0, 1.0), sign=True, ndigits=8),
     Fixed("B_POLE", 11, Range(-1.0, 1.0), sign=True, ndigits=8),
     Fixed("CJ1_POLE", 11, Range(-1.0, 1.0), sign=True, ndigits=8),
@@ -27,7 +28,7 @@ eci_spec = [
     Fixed("HK2_POLE", 11, Range(-1.0, 1.0), sign=True, ndigits=8),
     Fixed("PK1_POLE", 10, Range(0.0, 500.0), sign=True, ndigits=8),
     Fixed("PK2_POLE", 10, Range(0.0, 500.0), sign=True, ndigits=8),
-    Fixed("TB_UT", 19, Range(Decimal(2e6), Decimal(3e6)), ndigits=11, kind=Decimal),
+    FixedDecimal("TB_UT", 19, Range(Decimal("2e6"), Decimal("3e6")), ndigits=11),
     Fixed("I_UT", 12, Range(-1.0, 1.0), sign=True, ndigits=9),
     Fixed("J_UT", 12, Range(-1.0, 1.0), sign=True, ndigits=9),
     Fixed("KN1_UT", 12, Range(-1.0, 1.0), sign=True, ndigits=9),

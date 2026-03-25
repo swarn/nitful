@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from biif.models.tre import TRE
+from biif.models.common import TRE
 
 
 @dataclass(kw_only=True)

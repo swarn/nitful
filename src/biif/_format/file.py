@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from os import SEEK_CUR
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from biif._dsl.spec import (
     BcsIntEnum,
@@ -17,13 +17,15 @@ from biif._dsl.spec import (
     Int,
     Spec,
     VariableLengthList,
+    field_size,
 )
 from biif._dsl.validator import Literals, NonNegative, NotBlank
 from biif._format.des import des_to_fields, read_des
 from biif._format.image import image_to_fields, read_image_segment
 from biif._format.security import security_spec
-from biif._format.tre import read_tre, tre_to_fields
-from biif.models.core import BIIF, EncryptionLevel, Security
+from biif._format.tre import read_tre_list, tre_list_to_fields
+from biif.models.common import EncryptionLevel, Security
+from biif.models.file import BIIF
 
 
 @dataclass
@@ -56,7 +58,7 @@ class ReservedSegmentInfo:
     LRE: int
 
 
-header_spec: list[Spec] = [
+header_spec: list[Spec[Any]] = [
     BcsString("FHDR", 4, Literals(["NITF", "NSIF"])),
     BcsString("FVER", 5, Literals(["01.01", "02.10"])),
     Int("CLEVEL", 2, Literals([3, 5, 6, 7, 9, 51, 54, 57])),
@@ -105,36 +107,16 @@ header_spec: list[Spec] = [
 def read_file(fd: BinaryIO) -> BIIF:
     header = Block(header_spec).read(fd)
 
-    # Read any TREs in the User Defined Header Data.
-    udhd = []
-    udhdl = Int("UDHDL", 5).read(fd)
-    if udhdl > 0:
-        udhofl = Int("UDHOFL", 3).read(fd)
-        if udhofl > 0:
-            raise NotImplementedError()
-
-        udhd_end = fd.tell() + (udhdl - 3)
-        while fd.tell() < udhd_end:
-            udhd.append(read_tre(fd))
-
-    # Read any TREs in the Extended Header Data
-    xhd = []
-    xhdl = Int("XHDL", 5).read(fd)
-    if xhdl > 0:
-        xhdlofl = Int("XHDLOFL", 3).read(fd)
-        if xhdlofl > 0:
-            raise NotImplementedError()
-
-        xhd_end = fd.tell() + (xhdl - 3)
-        while fd.tell() < xhd_end:
-            xhd.append(read_tre(fd))
+    udhd = read_tre_list(fd, "UDHDL", "UDHOFL")
+    xhd = read_tre_list(fd, "XHDL", "XHDLOFL")
 
     # Read the image segments. Each segment includes all relevant size
     # information, so the sizes in the file header are mostly useful for
     # skipping past segments, or for verifying correct reads.
-    image_segments = []
-    for info in header["image_segment_info"]:
-        image_segments.append(read_image_segment(fd, lish=info.LISH, li=info.LI))
+    image_segments = [
+        read_image_segment(fd, lish=info.LISH, li=info.LI)
+        for info in header["image_segment_info"]
+    ]
 
     # Not supporting graphics yet, so simply skip those bytes.
     for info in header["graphic_segment_info"]:
@@ -148,11 +130,11 @@ def read_file(fd: BinaryIO) -> BIIF:
 
     # Read the data segments. Again, each segment includes size info. The
     # factory function generates the correct DES type.
-    data_segments = []
-    for info in header["data_segment_info"]:
-        des = read_des(fd, info.LDSH, info.LD)
-        data_segments.append(des)
+    data_segments = [
+        read_des(fd, info.LDSH, info.LD) for info in header["data_segment_info"]
+    ]
 
+    # Not supporting reserved segments yet.
     for info in header["reserved_segment_info"]:
         segment_size = info.LRESH + info.LRE
         fd.seek(segment_size, SEEK_CUR)
@@ -171,15 +153,13 @@ def read_file(fd: BinaryIO) -> BIIF:
     return BIIF(**kwargs)
 
 
-def find_field(fields: list[Field], name: str):
+def find_field(fields: list[Field], name: str) -> int:
     for i, field in enumerate(fields):
         if field.name == name:
             return i
-    raise ValueError(f"Field {name} not found.")
 
-
-def field_size(fields: list[Field]) -> int:
-    return sum(len(f.value) for f in fields)
+    msg = f"Field {name} not found."
+    raise ValueError(msg)
 
 
 def to_fields(biif: BIIF) -> list[Field]:
@@ -192,22 +172,20 @@ def to_fields(biif: BIIF) -> list[Field]:
         data_idx = find_field(image_fields, "IMAGE DATA START")
         len_hdr = field_size(image_fields[:data_idx])
         len_data = field_size(image_fields[data_idx:])
-        info = ImageSegmentInfo(LISH=len_hdr, LI=len_data)
-        image_infos.append(info)
+        img_info = ImageSegmentInfo(LISH=len_hdr, LI=len_data)
+        image_infos.append(img_info)
         all_image_fields.extend(image_fields)
 
     all_data_fields: list[Field] = []
     data_infos: list[DataSegmentInfo] = []
 
     for des in biif.data_segments:
-        # The des_to_fields function looks up the spec for the
-        # DES type and uses it to create the fields.
         data_fields = des_to_fields(des)
         data_idx = find_field(data_fields, "DES DATA START")
         len_hdr = field_size(data_fields[:data_idx])
         len_data = field_size(data_fields[data_idx:])
-        info = DataSegmentInfo(LDSH=len_hdr, LD=len_data)
-        data_infos.append(info)
+        des_info = DataSegmentInfo(LDSH=len_hdr, LD=len_data)
+        data_infos.append(des_info)
         all_data_fields.extend(data_fields)
 
     # Generate the header fields with dummy values for lengths.
@@ -221,31 +199,11 @@ def to_fields(biif: BIIF) -> list[Field]:
     header_kwargs["HL"] = 0
     header_fields = Block(header_spec).fields_from(header_kwargs)
 
-    # Add the UDHD TREs to the header.
-    udhd_fields = []
-    for tre in biif.UDHD:
-        udhd_fields.extend(tre_to_fields(tre))
+    udhd_fields = tre_list_to_fields(biif.UDHD, "UDHDL", "UDHOFL")
+    header_fields.extend(udhd_fields)
 
-    if udhd_fields:
-        udhd_len = field_size(udhd_fields) + 3
-        header_fields.extend(Int("UDHDL", 5).to_fields(udhd_len))
-        header_fields.extend(Constant(Int("UDHOFL", 3), 0).to_fields())
-        header_fields.extend(udhd_fields)
-    else:
-        header_fields.extend(Int("UDHDL", 5).to_fields(0))
-
-    # Add the XHD TREs to the header.
-    xhd_fields = []
-    for tre in biif.XHD:
-        xhd_fields.extend(tre_to_fields(tre))
-
-    if xhd_fields:
-        xhdl_len = field_size(xhd_fields) + 3
-        header_fields.extend(Int("XHDL", 5).to_fields(xhdl_len))
-        header_fields.extend(Constant(Int("XHDLOFL", 3), 0).to_fields())
-        header_fields.extend(xhd_fields)
-    else:
-        header_fields.extend(Int("XHDL", 5).to_fields(0))
+    xhd_fields = tre_list_to_fields(biif.XHD, "XHDL", "XHDLOFL")
+    header_fields.extend(xhd_fields)
 
     # Patch the header length.
     header_len = field_size(header_fields)

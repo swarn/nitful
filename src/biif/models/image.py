@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import BinaryIO, Protocol
 
-from biif.models.core import EncryptionLevel, Security
-from biif.models.tre import TRE
+from biif.models.common import TRE, EncryptionLevel, Security
 
 
 @dataclass(kw_only=True)

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import override
+from typing import ClassVar, override
 
 from biif._dsl.spec import (
     BcsString,
@@ -26,26 +26,34 @@ class RpcFloat(FieldSpec[float]):
 
     size: int = field(default=12, init=False)
 
+    # There is only one digit for exponents.
+    MAX_EXPONENT: ClassVar[int] = 9
+    MIN_EXPONENT: ClassVar[int] = -9
+
     @override
     def encode(self, decoded: float) -> bytes:
         nrepr = format(decoded, "+13.6E")
         mantissa, exponent = nrepr.split("E")
-        if int(exponent) >= 10:
-            raise ValueError("RPC coeffient exponents must be < 10")
+
+        exp_val = int(exponent)
+
+        if exp_val > self.MAX_EXPONENT:
+            msg = (
+                f"RPC coefficient exponents must be <= {self.MAX_EXPONENT}, "
+                f"but got {exp_val}"
+            )
+            raise ValueError(msg)
 
         # If the number's too small to represent, round to the zero with the
         # same sign as the number. Otherwise, remove the leading zero from the
         # exponent.
-        if int(exponent) < -9:
+        if exp_val < self.MIN_EXPONENT:
             msign = mantissa[0]
             retval = f"{msign}0.000000E+0"
         else:
             esign = exponent[0]
             exp = exponent[2]
             retval = f"{mantissa}E{esign}{exp}"
-
-        if len(retval) != 12:
-            raise RuntimeError(f"RPC coefficient formatting failed for {retval}")
 
         return retval.encode()
 

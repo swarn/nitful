@@ -33,7 +33,7 @@ from biif._dsl.validator import Literals, Positive, Range
 from biif._format.des import register_des
 from biif._format.eci import eci_spec
 from biif._format.security import security_spec
-from biif.models.core import Security
+from biif.models.common import Security
 from biif.models.eci import ECI
 from biif.models.extensions.csephb import (
     CSEPHB,

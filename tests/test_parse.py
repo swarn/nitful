@@ -17,12 +17,18 @@ def test_parse_minimal_file():
     assert nitf.FHDR == "NITF"
     assert nitf.FVER == "02.10"
 
+    for tre in nitf.UDHD:
+        assert tre.CETAG is not None
+
+    for tre in nitf.XHD:
+        assert tre.CETAG is not None
+
+    for des in nitf.data_segments:
+        assert des.DESID is not None
+
     assert len(nitf.image_segments) == 1
     assert nitf.image_segments[0].IREP == "MONO"
 
     dump_str = biif.dump(nitf)
     assert "FHDR" in dump_str
     assert "QUAL_FLAG_EPH" in dump_str
-
-    print(nitf)
-

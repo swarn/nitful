@@ -1,31 +1,36 @@
 from io import SEEK_CUR
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
 from biif._dsl.spec import DataclassRecord, Field
-from biif.models.des import DES, UnknownDES
+from biif.models.common import DES, UnknownDES
 
-des_read_registry: dict[tuple[str, int], DataclassRecord] = {}
-des_write_registry: dict[type[DES], DataclassRecord] = {}
+des_read_registry: dict[tuple[str, int], DataclassRecord[DES]] = {}
+des_write_registry: dict[type[DES], DataclassRecord[DES]] = {}
 
 
-def register_des(desid: str, desver: int, spec: DataclassRecord):
+def register_des[T: DES](desid: str, desver: int, spec: DataclassRecord[T]) -> None:
     """Register a specification for a DES."""
-    des_read_registry[desid, desver] = spec
-    des_write_registry[spec.model_cls] = spec
+    des_read_registry[desid, desver] = cast(DataclassRecord[DES], spec)
+    des_write_registry[spec.model_cls] = cast(DataclassRecord[DES], spec)
 
 
 def read_des(fd: BinaryIO, header_len: int, data_len: int) -> DES:
 
     start_pos = fd.tell()
 
-    first = fd.read(29)
-    if len(first) != 29:
-        raise RuntimeError("Unexpected EOF while reading DES header.")
+    # Length of "DE", "DESID", and "DESVER" fields.
+    peek_len = 29
 
-    fd.seek(-29, SEEK_CUR)
+    first = fd.read(peek_len)
+    if len(first) != peek_len:
+        msg = "Unexpected EOF while reading DES header."
+        raise RuntimeError(msg)
+
+    fd.seek(-peek_len, SEEK_CUR)
 
     if first[:2].decode() != "DE":
-        raise RuntimeError("Invalid DES segment")
+        msg = "Expected DES, but first characters were not 'DE'"
+        raise RuntimeError(msg)
 
     desid = first[2:27].decode().strip()
     desver = int(first[27:29].decode())
@@ -35,8 +40,8 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int) -> DES:
         des = spec.read(fd)
     else:
         des = UnknownDES(
-            desid=desid,
-            desver=desver,
+            DESID=desid,
+            DESVER=desver,
             raw_header=fd.read(header_len),
             raw_data=fd.read(data_len),
         )
@@ -59,18 +64,17 @@ def des_to_fields(des: DES) -> list[Field]:
     # for the header DES sizes.
     if isinstance(des, UnknownDES):
         return [
-            Field(name=f"DES START {des.desid}", value=b""),
-            Field(name=f"DES {des.desid} HEADER", value=des.raw_header),
+            Field(name=f"DES START {des.DESID}", value=b""),
+            Field(name=f"DES {des.DESID} HEADER", value=des.raw_header),
             Field(name="DES DATA START", value=b""),
-            Field(name=f"DES {des.desid} DATA", value=des.raw_data),
+            Field(name=f"DES {des.DESID} DATA", value=des.raw_data),
         ]
 
     des_type = type(des)
     if des_type not in des_write_registry:
-        raise TypeError(
-            f"Cannot serialize {des_type.__name__}: "
-            "Class is not registered in des_write_registry."
-        )
+        name = des_type.__name__
+        msg = f"Class {name} does not have a registered specification."
+        raise TypeError(msg)
 
     spec = des_write_registry[des_type]
     return spec.to_fields(des)

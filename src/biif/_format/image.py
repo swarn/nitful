@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from io import SEEK_CUR
-from typing import BinaryIO, override
+from typing import Any, BinaryIO, ClassVar, override
 
 from biif._dsl.spec import (
     BcsIntEnum,
@@ -21,8 +21,8 @@ from biif._dsl.spec import (
 )
 from biif._dsl.validator import Literals, NonNegative, Positive, Range
 from biif._format.security import security_spec
-from biif._format.tre import read_tre, tre_to_fields
-from biif.models.core import EncryptionLevel, Security
+from biif._format.tre import read_tre_list, tre_list_to_fields
+from biif.models.common import EncryptionLevel, Security
 from biif.models.image import (
     BandInfo,
     Compression,
@@ -67,6 +67,8 @@ class DeferredImageData:
 @dataclass
 class NumBands(Spec[int]):
 
+    MAX_NBANDS: ClassVar[int] = 9
+
     @override
     def read(self, fd: BinaryIO) -> int:
         nbands = Int("NBANDS", 1).read(fd)
@@ -76,7 +78,7 @@ class NumBands(Spec[int]):
 
     @override
     def to_fields(self, value: int) -> list[Field]:
-        if value < 9:
+        if value <= self.MAX_NBANDS:
             return Int("NBANDS", 1).to_fields(value)
 
         return Int("NBANDS", 1).to_fields(0) + Int("XBANDS", 4).to_fields(value)
@@ -92,7 +94,7 @@ class CompressionSpec(Spec[Compression]):
         ic = BcsString("IC", 2).read(fd)
         kwargs = {"IC": ic}
 
-        if ic not in ["NC", "NM"]:
+        if ic not in {"NC", "NM"}:
             kwargs["COMRAT"] = BcsString("COMRAT", 4).read(fd)
 
         return Compression(**kwargs)
@@ -101,7 +103,7 @@ class CompressionSpec(Spec[Compression]):
     def to_fields(self, value: Compression) -> list[Field]:
         out_fields = BcsString("IC", 2).to_fields(value.IC)
 
-        if Compression.IC not in ["NC", "NM"]:
+        if Compression.IC not in {"NC", "NM"}:
             out_fields += BcsString("COMRAT", 4).to_fields(value.COMRAT)
 
         return out_fields
@@ -120,9 +122,7 @@ class IcordsSpec(Spec[NoCoords | Coords]):
             return NoCoords()
 
         args = [ic_rep]
-
-        for _ in range(4):
-            args.append(BcsString("", 15).read(fd))
+        args.extend(BcsString("", 15).read(fd) for _ in range(4))
 
         return Coords(*args)
 
@@ -132,12 +132,17 @@ class IcordsSpec(Spec[NoCoords | Coords]):
             return BcsString("ICORDS", 1).to_fields(" ")
 
         icords_fields = BcsString("ICORDS", 1).to_fields(value.ICORDS)
+        igeolo_bytes = b"".join(
+            BcsString("", 15).encode(c)
+            for c in [
+                value.upperleft,
+                value.upperright,
+                value.lowerright,
+                value.lowerleft,
+            ]
+        )
 
-        igeolo_bytes = []
-        for c in value.upperleft, value.upperright, value.lowerright, value.lowerleft:
-            igeolo_bytes.append(BcsString("", 15).encode(c))
-
-        return icords_fields + [Field("IGEOLO", b"".join(igeolo_bytes))]
+        return [*icords_fields, Field("IGEOLO", igeolo_bytes)]
 
 
 @dataclass
@@ -153,11 +158,8 @@ class LutsSpec(Spec[list[list[int]]]):
 
         nelut = Int("NELUT", 5).read(fd)
 
-        luts = []
-        for _ in range(nluts):
-            luts.append([BinaryInt("LUTD", 1).read(fd) for _ in range(nelut)])
-
-        return luts
+        lut_spec = BinaryInt("LUTD", 1)
+        return [[lut_spec.read(fd) for _ in range(nelut)] for _ in range(nluts)]
 
     @override
     def to_fields(self, value: list[list[int]]) -> list[Field]:
@@ -171,7 +173,7 @@ class LutsSpec(Spec[list[list[int]]]):
         out += Int("NELUT", 5).to_fields(nelut)
 
         if not all(len(lut) == nelut for lut in value):
-            raise ValueError()
+            raise ValueError
 
         for lut in value:
             for entry in lut:
@@ -180,7 +182,7 @@ class LutsSpec(Spec[list[list[int]]]):
         return out
 
 
-image_head_spec = [
+image_head_spec: list[Spec[Any]] = [
     Marker("IMAGE START"),
     Constant(BcsString("IM", 2), "IM"),
     BcsString("IID1", 10),
@@ -239,32 +241,12 @@ def read_image_segment(fd: BinaryIO, lish: int, li: int) -> ImageSegment:
 
     header = Block(image_head_spec).read(fd)
 
-    # Read any TREs in the User Defined Image Data.
-    udid = []
-    udidl = Int("UDIDL", 5).read(fd)
-    if udidl > 0:
-        udofl = Int("UDOFL", 3).read(fd)
-        if udofl > 0:
-            raise NotImplementedError()
-
-        udid_end = fd.tell() + (udidl - 3)
-        while fd.tell() < udid_end:
-            udid.append(read_tre(fd))
-
-    # Read any TREs in the Extended Header Data
-    ixshd = []
-    ixshdl = Int("IXSHDL", 5).read(fd)
-    if ixshdl > 0:
-        ixsofl = Int("IXSOFL", 3).read(fd)
-        if ixsofl > 0:
-            raise NotImplementedError()
-
-        ixshd_end = fd.tell() + (ixshdl - 3)
-        while fd.tell() < ixshd_end:
-            ixshd.append(read_tre(fd))
+    udid = read_tre_list(fd, "UDIDL", "UDOFL")
+    ixshd = read_tre_list(fd, "IXSHDL", "IXSOFL")
 
     if fd.tell() != start_pos + lish:
-        raise RuntimeError("Image segment header has wrong length")
+        msg = "Image segment header has wrong length"
+        raise RuntimeError(msg)
 
     data_proxy = DeferredImageData(source_fd=fd, offset=fd.tell(), length=li)
     fd.seek(li, SEEK_CUR)
@@ -278,37 +260,14 @@ def read_image_segment(fd: BinaryIO, lish: int, li: int) -> ImageSegment:
     return ImageSegment(**kwargs, data=data_proxy)
 
 
-def field_size(fields: list[Field]) -> int:
-    return sum(len(f.value) for f in fields)
-
-
 def image_to_fields(image: ImageSegment) -> list[Field]:
-
     out_fields = Block(image_head_spec).fields_from(vars(image))
 
-    udid_fields = []
-    for tre in image.UDID:
-        udid_fields.extend(tre_to_fields(tre))
+    udid_fields = tre_list_to_fields(image.UDID, "UDIDL", "UDOFL")
+    out_fields.extend(udid_fields)
 
-    if udid_fields:
-        udidl = field_size(udid_fields) + 3
-        out_fields.extend(Int("UDIDL", 5).to_fields(udidl))
-        out_fields.extend(Int("UDOFL", 3).to_fields(0))
-        out_fields.extend(udid_fields)
-    else:
-        out_fields.extend(Int("UDIDL", 5).to_fields(0))
-
-    ixshd_fields = []
-    for tre in image.IXSHD:
-        ixshd_fields.extend(tre_to_fields(tre))
-
-    if ixshd_fields:
-        ixshdl = field_size(ixshd_fields) + 3
-        out_fields.extend(Int("IXSHDL", 5).to_fields(ixshdl))
-        out_fields.extend(Int("IXSOFL", 3).to_fields(0))
-        out_fields.extend(ixshd_fields)
-    else:
-        out_fields.extend(Int("IXSHDL", 5).to_fields(0))
+    ixshd_fields = tre_list_to_fields(image.IXSHD, "IXSHDL", "IXSOFL")
+    out_fields.extend(ixshd_fields)
 
     out_fields.append(Field(name="IMAGE DATA START", value=b""))
     out_fields.append(Field(name="IMAGE DATA", value=image.data))

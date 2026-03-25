@@ -1,4 +1,5 @@
-from typing import BinaryIO, Iterable
+from collections.abc import Iterable
+from typing import BinaryIO
 
 from biif._dsl.spec import Field
 
@@ -35,9 +36,11 @@ def dump_fields(fields: Iterable[Field]) -> str:
 
         if f.name == "IMAGE DATA":
             title = f" IMAGE {image_num} DATA: {len(f.value)} bytes "
-            lines.append("/" * width)
-            lines.append(format(title, f"/^{width}"))
-            lines.append("/" * width)
+            lines.extend([
+                "/" * width,
+                format(title, f"/^{width}"),
+                "/" * width,
+            ])
             continue
 
         if not isinstance(f.value, bytes):
@@ -47,10 +50,7 @@ def dump_fields(fields: Iterable[Field]) -> str:
 
         if f.name == "CETAG":
             tre_num += 1
-            if image_num == 0:
-                location = "HEADER"
-            else:
-                location = f"IMAGE {image_num}"
+            location = "HEADER" if image_num == 0 else f"IMAGE {image_num}"
             title = f" {location} TRE {tre_num}: {f.value.decode()} "
             lines.append(format(title, f"=^{width}"))
 
@@ -64,11 +64,7 @@ def dump_fields(fields: Iterable[Field]) -> str:
         if len(f.value) == 0:
             continue
 
-        if isinstance(f.value, bytes):
-            val_str = repr(f.value)[1:]
-        else:
-            val_str = f"<{len(f.value)} bytes>"
-
+        val_str = repr(f.value)[1:]
         lines.append(f"{f.name}: {val_str}")
 
     return "\n".join(lines)

@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import override
+from typing import TypeVar, override
 
-type Numeric = int | float | Decimal
+NumericT = TypeVar("NumericT", int, float, Decimal)
 
 
 class Validator[T](ABC):
@@ -13,35 +13,35 @@ class Validator[T](ABC):
         pass
 
 
-class NonZero[T: Numeric](Validator[T]):
+class NonZero(Validator[NumericT]):
 
     @override
-    def __call__(self, val: T) -> bool:
+    def __call__(self, val: NumericT) -> bool:
         return val != 0
 
 
-class NonNegative[T: Numeric](Validator[T]):
+class NonNegative(Validator[NumericT]):
 
     @override
-    def __call__(self, val: T) -> bool:
+    def __call__(self, val: NumericT) -> bool:
         return val >= 0
 
 
-class Positive[T: Numeric](Validator[T]):
+class Positive(Validator[NumericT]):
 
     @override
-    def __call__(self, val: T) -> bool:
+    def __call__(self, val: NumericT) -> bool:
         return val > 0
 
 
 @dataclass
-class Range[T: Numeric](Validator[T]):
+class Range(Validator[NumericT]):
 
-    min: T
-    max: T
+    min: NumericT
+    max: NumericT
 
     @override
-    def __call__(self, val: T) -> bool:
+    def __call__(self, val: NumericT) -> bool:
         return self.min <= val <= self.max
 
 
