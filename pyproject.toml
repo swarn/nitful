@@ -1,13 +1,16 @@
 [project]
 authors = [{name = "Seth Warn", email = "swarn@uark.edu"}]
 dependencies = []
-name = "biif"
+name = "nitful"
 requires-python = ">= 3.12"
 version = "0.1.0"
 
 [build-system]
 build-backend = "hatchling.build"
 requires = ["hatchling"]
+
+[project.scripts]
+nitful = "nitful.cli:main"
 
 [tool.mypy]
 strict = true
@@ -42,6 +45,8 @@ ignore = [
     "TRY003",   # long exception messages
     "PTH123",   # don't force Path.open()
     "PLC1901",  # explicit empty string checks are OK
+    "FBT003",   # allow boolean positional arguments
+    "ANN401",   # avoiding Any is difficult while parsing
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -63,3 +68,5 @@ reportUnusedImport = "none"
 reportUnusedCallResult = "none"
 reportExplicitAny = "none"
 reportAny = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"

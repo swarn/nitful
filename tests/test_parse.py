@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import biif
+import nitful
 
 TEST_DATA_DIR = Path(__file__).parent / "data"
 
@@ -12,7 +12,7 @@ def test_parse_minimal_file():
 
     assert test_file.exists(), f"Test file not found at {test_file}"
 
-    nitf = biif.load(test_file)
+    nitf = nitful.load(test_file)
 
     assert nitf.FHDR == "NITF"
     assert nitf.FVER == "02.10"
@@ -29,6 +29,6 @@ def test_parse_minimal_file():
     assert len(nitf.image_segments) == 1
     assert nitf.image_segments[0].IREP == "MONO"
 
-    dump_str = biif.dump(nitf)
+    dump_str = nitful.dump(nitf)
     assert "FHDR" in dump_str
     assert "QUAL_FLAG_EPH" in dump_str

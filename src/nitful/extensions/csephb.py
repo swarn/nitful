@@ -7,8 +7,8 @@ from datetime import date
 from enum import IntEnum
 from uuid import UUID as UUID_T
 
-from biif.models.common import DES, Security
-from biif.models.eci import ECI
+from nitful.core.common import DES, Security
+from nitful.core.eci import ECI
 
 type Array2D = list[list[float]]
 
@@ -23,11 +23,11 @@ class CSEPHB(DES):
 
     # A list of image segments associated with this DES, identified by display
     # level. If empty, this DES applies to all image segments.
-    associated_images: list[int] = field(default_factory=list)
+    images: list[int] = field(default_factory=list)
 
     # A list of associated elements, primarily the IMAGE_UUID from the
     # associated CSEXRB TRE.
-    associated_elements: list[UUID_T]
+    elements: list[UUID_T] = field(default_factory=list)
 
     # True if good, false if suspect.
     QUAL_FLAG_EPH: Quality
@@ -51,19 +51,17 @@ class CSEPHB(DES):
 
     ephemerides: Array2D
 
-    velocity: Array2D | None = None
-    acceleration: Array2D | None = None
+    # Velocity and accleration data.
+    kinematics: Kinematics | None = None
+
+    # Unknown Reserved Field Areas are placed here during parsing as raw bytes,
+    # allowing them to be written later.
+    unknown_extensions: dict[int, bytes] = field(default_factory=dict)
 
 
 class Quality(IntEnum):
     SUSPECT = 0
     GOOD = 1
-
-
-class InterpolationType(IntEnum):
-    NEAREST = 0
-    LINEAR = 1
-    LAGRANGIAN = 2
 
 
 @dataclass
@@ -81,11 +79,6 @@ class Lagrangian:
     INTERP_ORDER_EPH: int
 
 
-class Frame(IntEnum):
-    ECI = 0
-    ECF = 1
-
-
 @dataclass
 class ECF:
     pass
@@ -95,3 +88,9 @@ class EphemerisSource(IntEnum):
     PREDICTED = 0
     ACTUAL = 1
     REFINED = 2
+
+
+@dataclass
+class Kinematics:
+    velocities: Array2D
+    accelerations: Array2D | None = None

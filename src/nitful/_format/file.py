@@ -2,30 +2,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from os import SEEK_CUR
-from typing import Any, BinaryIO
+from typing import BinaryIO
 
-from biif._dsl.spec import (
+from nitful._dsl.spec import (
     BcsIntEnum,
     BcsString,
-    Block,
     ConcatDatetime,
     Constant,
     DataclassRecord,
+    DictRecord,
     EcsString,
+    EmitContext,
     Field,
     HexColor,
     Int,
-    Spec,
-    VariableLengthList,
+    ParseContext,
+    PrefixedList,
     field_size,
 )
-from biif._dsl.validator import Literals, NonNegative, NotBlank
-from biif._format.des import des_to_fields, read_des
-from biif._format.image import image_to_fields, read_image_segment
-from biif._format.security import security_spec
-from biif._format.tre import read_tre_list, tre_list_to_fields
-from biif.models.common import EncryptionLevel, Security
-from biif.models.file import BIIF
+from nitful._dsl.validator import Literals, NonNegative, NotBlank
+from nitful.core.common import EncryptionLevel, Security
+from nitful.core.file import NitfFile
+
+from .des import des_to_fields, read_des
+from .image import image_to_fields, read_image_segment
+from .security import security_spec
+from .tre import read_tre_list, tre_list_to_fields
 
 
 @dataclass
@@ -58,7 +60,7 @@ class ReservedSegmentInfo:
     LRE: int
 
 
-header_spec: list[Spec[Any]] = [
+header_spec = DictRecord([
     BcsString("FHDR", 4, Literals(["NITF", "NSIF"])),
     BcsString("FVER", 5, Literals(["01.01", "02.10"])),
     Int("CLEVEL", 2, Literals([3, 5, 6, 7, 9, 51, 54, 57])),
@@ -66,7 +68,7 @@ header_spec: list[Spec[Any]] = [
     BcsString("OSTAID", 10, NotBlank()),
     ConcatDatetime("FDT"),
     EcsString("FTITLE", 80),
-    DataclassRecord("security", Security, security_spec),
+    DataclassRecord(Security, security_spec, name="security"),
     Int("FSCOP", 5, NonNegative()),
     Int("FSCPYS", 5, NonNegative()),
     BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
@@ -75,37 +77,37 @@ header_spec: list[Spec[Any]] = [
     EcsString("OPHONE", 18),
     Int("FL", 12),
     Int("HL", 6),
-    VariableLengthList(
-        "image_segment_info",
-        Int("NUMI", 3),
-        DataclassRecord("", ImageSegmentInfo, [Int("LISH", 6), Int("LI", 10)]),
+    PrefixedList(
+        name="image_segment_info",
+        count=Int("NUMI", 3),
+        body=DataclassRecord(ImageSegmentInfo, [Int("LISH", 6), Int("LI", 10)]),
     ),
-    VariableLengthList(
-        "graphic_segment_info",
-        Int("NUMS", 3),
-        DataclassRecord("", GraphicSegmentInfo, [Int("LSSH", 4), Int("LS", 6)]),
+    PrefixedList(
+        name="graphic_segment_info",
+        count=Int("NUMS", 3),
+        body=DataclassRecord(GraphicSegmentInfo, [Int("LSSH", 4), Int("LS", 6)]),
     ),
     Constant(Int("NUMX", 3), 0),
-    VariableLengthList(
-        "text_segment_info",
-        Int("NUMT", 3),
-        DataclassRecord("", TextSegmentInfo, [Int("LTSH", 4), Int("LT", 5)]),
+    PrefixedList(
+        name="text_segment_info",
+        count=Int("NUMT", 3),
+        body=DataclassRecord(TextSegmentInfo, [Int("LTSH", 4), Int("LT", 5)]),
     ),
-    VariableLengthList(
-        "data_segment_info",
-        Int("NUMDES", 3),
-        DataclassRecord("", DataSegmentInfo, [Int("LDSH", 4), Int("LD", 9)]),
+    PrefixedList(
+        name="data_segment_info",
+        count=Int("NUMDES", 3),
+        body=DataclassRecord(DataSegmentInfo, [Int("LDSH", 4), Int("LD", 9)]),
     ),
-    VariableLengthList(
-        "reserved_segment_info",
-        Int("NUMRES", 3),
-        DataclassRecord("", ReservedSegmentInfo, [Int("LRESH", 4), Int("LRE", 7)]),
+    PrefixedList(
+        name="reserved_segment_info",
+        count=Int("NUMRES", 3),
+        body=DataclassRecord(ReservedSegmentInfo, [Int("LRESH", 4), Int("LRE", 7)]),
     ),
-]
+])
 
 
-def read_file(fd: BinaryIO) -> BIIF:
-    header = Block(header_spec).read(fd)
+def read_file(fd: BinaryIO) -> NitfFile:
+    header = header_spec.parse(fd, ParseContext())
 
     udhd = read_tre_list(fd, "UDHDL", "UDHOFL")
     xhd = read_tre_list(fd, "XHDL", "XHDLOFL")
@@ -141,7 +143,7 @@ def read_file(fd: BinaryIO) -> BIIF:
 
     # TODO: fd should be empty at this point, check that.
 
-    valid_fields = {f.name for f in fields(BIIF)}
+    valid_fields = {f.name for f in fields(NitfFile)}
     valid_keys = header.keys() & valid_fields
 
     kwargs = {k: header[k] for k in valid_keys}
@@ -150,7 +152,7 @@ def read_file(fd: BinaryIO) -> BIIF:
     kwargs["image_segments"] = image_segments
     kwargs["data_segments"] = data_segments
 
-    return BIIF(**kwargs)
+    return NitfFile(**kwargs)
 
 
 def find_field(fields: list[Field], name: str) -> int:
@@ -162,7 +164,7 @@ def find_field(fields: list[Field], name: str) -> int:
     raise ValueError(msg)
 
 
-def to_fields(biif: BIIF) -> list[Field]:
+def to_fields(biif: NitfFile) -> list[Field]:
 
     all_image_fields: list[Field] = []
     image_infos: list[ImageSegmentInfo] = []
@@ -197,7 +199,9 @@ def to_fields(biif: BIIF) -> list[Field]:
     header_kwargs["reserved_segment_info"] = []
     header_kwargs["FL"] = 0
     header_kwargs["HL"] = 0
-    header_fields = Block(header_spec).fields_from(header_kwargs)
+
+    ctx = EmitContext()
+    header_fields = header_spec.to_fields(header_kwargs, ctx)
 
     udhd_fields = tre_list_to_fields(biif.UDHD, "UDHDL", "UDHOFL")
     header_fields.extend(udhd_fields)
@@ -208,7 +212,7 @@ def to_fields(biif: BIIF) -> list[Field]:
     # Patch the header length.
     header_len = field_size(header_fields)
     hl_idx = find_field(header_fields, "HL")
-    header_fields[hl_idx] = Int("HL", 6).to_fields(header_len)[0]
+    header_fields[hl_idx] = Int("HL", 6).to_fields(header_len, ctx)[0]
 
     all_fields = (
         header_fields
@@ -222,6 +226,6 @@ def to_fields(biif: BIIF) -> list[Field]:
     # Patch the file length.
     all_len = field_size(all_fields)
     fl_idx = find_field(all_fields, "FL")
-    all_fields[fl_idx] = Int("FL", 12).to_fields(all_len)[0]
+    all_fields[fl_idx] = Int("FL", 12).to_fields(all_len, ctx)[0]
 
     return all_fields

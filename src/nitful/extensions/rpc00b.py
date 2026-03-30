@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from biif.models.common import TRE
+from nitful.core.common import TRE
 
 
 @dataclass(kw_only=True)
@@ -23,7 +23,7 @@ class RPC00B(TRE):
     LONG_SCALE: float
     HEIGHT_SCALE: int
 
-    LINE_NUM_COEFF: list[float]
-    LINE_DEN_COEFF: list[float]
-    SAMP_NUM_COEFF: list[float]
-    SAMP_DEN_COEFF: list[float]
+    line_num_coeffs: list[float]
+    line_den_coeffs: list[float]
+    samp_num_coeffs: list[float]
+    samp_den_coeffs: list[float]

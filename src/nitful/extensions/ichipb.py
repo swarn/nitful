@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from biif.models.common import TRE
+from nitful.core.common import TRE
 
 
 @dataclass(kw_only=True)

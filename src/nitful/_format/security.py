@@ -1,8 +1,10 @@
 from typing import Any
 
-from biif._dsl.spec import EcsString, EcsStringEnum, Spec
-from biif.models.common import SecurityClass
+from nitful._dsl.spec import EcsString, EcsStringEnum, Spec
+from nitful.core.common import SecurityClass
 
+# TODO: Maybe this should be a DataclassRecord, wrather than wrapping it in
+# same everywhere.
 security_spec: list[Spec[Any]] = [
     EcsStringEnum("SCLAS", 1, enum=SecurityClass),
     EcsString("SCLSY", 2),

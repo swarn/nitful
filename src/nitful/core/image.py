@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import BinaryIO, Protocol
+from pathlib import Path
+from typing import BinaryIO
 
-from biif.models.common import TRE, EncryptionLevel, Security
+from .common import TRE, EncryptionLevel, Security
 
 
 @dataclass(kw_only=True)
@@ -27,7 +28,7 @@ class ImageSegment:
     ICAT: str = "VIS"
     ABPP: int = 8
     PJUST: PixelJustification = field(default_factory=lambda: PixelJustification.RIGHT)
-    location: NoCoords | Coords = field(default_factory=lambda: NoCoords())
+    location: Coords | None = None
     comments: list[str] = field(default_factory=list)
     compression: Compression = field(default_factory=lambda: Compression())
     bands: list[BandInfo] = field(default_factory=list)
@@ -47,8 +48,8 @@ class ImageSegment:
     UDID: list[TRE] = field(default_factory=list)
     IXSHD: list[TRE] = field(default_factory=list)
 
-    data: ImageData = field(
-        default_factory=lambda: BytesData(bytes.fromhex("DEADBEEF"))
+    data: DeferredImageData | bytes = field(
+        default_factory=lambda: bytes.fromhex("DEADBEEF")
     )
 
 
@@ -75,11 +76,6 @@ class ImageType(Enum):
 class PixelJustification(Enum):
     LEFT = "L"
     RIGHT = "R"
-
-
-@dataclass
-class NoCoords:
-    pass
 
 
 @dataclass
@@ -112,63 +108,42 @@ class BandInfo:
     luts: list[list[int]] = field(default_factory=list)
 
 
-class ImageData(Protocol):
-    """Wrapper for deferred or raw pixel data.
+@dataclass(frozen=True)
+class DeferredImageData:
+    """A reference to pixel data in a file.
 
-    NITF image segments can be massive. This protocol allows skipping loading
-    the pixel data, defering it until needed, or streaming it directly to a new
-    file during a round-trip operation.
-
-    **Reading Pixel Data**
-    To read the raw bytes, call `read()`. The original file descriptor must
-    remain open while reading:
-
-    ```python
-    with open('file.nitf', 'rb') as fd:
-        nitf = biif.read(fd)
-        pixels = nitf.image_segments[0].data.read()
-    ```
-
-    **Round-Tripping (Modify and Save)**
-    If you are modifying header data and writing to a new file, the source
-    file descriptor must remain open so the data can be streamed:
-
-    ```python
-    with open('source.nitf', 'rb') as source_fd:
-        nitf = biif.read(source_fd)
-        nitf.FTITLE = "NEW TITLE"
-
-        with open('destination.nitf', 'wb') as dest_fd:
-            biif.write(nitf, dest_fd)
-    ```
-
-    **Modifying Pixel Data**
-    If you want to set pixel data, wrap your raw bytes in the `BytesData`
-    class:
-
-    ```python
-    pixels = b'1234'
-    nitf.image_segments[0].data = BytesData(pixels)
-    biif.save(nitf, 'new_file.ntf')
-    ```
+    NITF image segments can be massive. Rather than storing pixel data, nitful
+    saves files and offsets within the files which can be read later.
     """
 
-    def __len__(self) -> int: ...
-    def write(self, out_fd: BinaryIO) -> None: ...
-    def read(self) -> bytes: ...
-
-
-@dataclass(frozen=True)
-class BytesData:
-    """In-memory implemenation of the ImageData protocol."""
-
-    data: bytes
+    path: Path | str | None
+    offset: int
+    length: int
 
     def __len__(self) -> int:
-        return len(self.data)
+        return self.length
 
     def write(self, out_fd: BinaryIO) -> None:
-        out_fd.write(self.data)
+        if not self.path:
+            msg = "Cannot write deferred payload: original stream was not a named file."
+            raise RuntimeError(msg)
+
+        with open(self.path, "rb") as source_fd:
+            source_fd.seek(self.offset)
+            bytes_left = self.length
+
+            while bytes_left > 0:
+                chunk = source_fd.read(min(bytes_left, 4096 * 1024))
+                if not chunk:
+                    break
+                out_fd.write(chunk)
+                bytes_left -= len(chunk)
 
     def read(self) -> bytes:
-        return self.data
+        if not self.path:
+            msg = "Cannot write deferred payload: original stream was not a named file."
+            raise RuntimeError(msg)
+
+        with open(self.path, "rb") as source_fd:
+            source_fd.seek(self.offset)
+            return source_fd.read(self.length)

@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from biif.models.common import DES, TRE, EncryptionLevel, Security
-from biif.models.image import ImageSegment
+from .common import DES, TRE, EncryptionLevel, Security
+from .image import ImageSegment
 
 
 @dataclass(kw_only=True)
-class BIIF:
+class NitfFile:
 
     FHDR: str = "NITF"
     FVER: str = "02.10"

@@ -7,8 +7,8 @@ significant digits than can be represented with a double-precision float.
 from decimal import Decimal
 from typing import Any
 
-from biif._dsl.spec import Fixed, FixedDecimal, Spec
-from biif._dsl.validator import Range
+from nitful._dsl.spec import Fixed, FixedDecimal, Spec
+from nitful._dsl.validator import Range
 
 eci_spec: list[Spec[Any]] = [
     FixedDecimal("TA_POLE", 19, Range(Decimal("2e6"), Decimal("3e6")), ndigits=11),

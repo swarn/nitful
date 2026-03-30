@@ -1,8 +1,8 @@
 from io import SEEK_CUR
 from typing import BinaryIO, cast
 
-from biif._dsl.spec import DataclassRecord, Field
-from biif.models.common import DES, UnknownDES
+from nitful._dsl.spec import DataclassRecord, EmitContext, Field, ParseContext
+from nitful.core.common import DES, UnknownDES
 
 des_read_registry: dict[tuple[str, int], DataclassRecord[DES]] = {}
 des_write_registry: dict[type[DES], DataclassRecord[DES]] = {}
@@ -37,7 +37,7 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int) -> DES:
 
     if (desid, desver) in des_read_registry:
         spec = des_read_registry[desid, desver]
-        des = spec.read(fd)
+        des = spec.parse(fd, ParseContext())
     else:
         des = UnknownDES(
             DESID=desid,
@@ -77,4 +77,4 @@ def des_to_fields(des: DES) -> list[Field]:
         raise TypeError(msg)
 
     spec = des_write_registry[des_type]
-    return spec.to_fields(des)
+    return spec.to_fields(des, EmitContext(vars(des)))

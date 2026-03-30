@@ -2,136 +2,110 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from io import SEEK_CUR
+from pathlib import Path
 from typing import Any, BinaryIO, ClassVar, override
 
-from biif._dsl.spec import (
+from nitful._dsl.spec import (
     BcsIntEnum,
     BcsString,
     BcsStringEnum,
     BinaryInt,
-    Block,
     Constant,
     DataclassRecord,
+    DictRecord,
     EcsString,
+    EmitContext,
     Field,
     Int,
     Marker,
+    ParseContext,
+    PrefixedList,
     Spec,
-    VariableLengthList,
 )
-from biif._dsl.validator import Literals, NonNegative, Positive, Range
-from biif._format.security import security_spec
-from biif._format.tre import read_tre_list, tre_list_to_fields
-from biif.models.common import EncryptionLevel, Security
-from biif.models.image import (
+from nitful._dsl.validator import Literals, NonNegative, Positive, Range
+from nitful.core.common import EncryptionLevel, Security
+from nitful.core.image import (
     BandInfo,
     Compression,
     Coords,
+    DeferredImageData,
     ImageSegment,
-    NoCoords,
     PixelJustification,
     PixelType,
 )
 
-
-@dataclass(frozen=True)
-class DeferredImageData:
-    source_fd: BinaryIO
-    offset: int
-    length: int
-
-    def __len__(self) -> int:
-        return self.length
-
-    def write(self, out_fd: BinaryIO) -> None:
-        current_pos = self.source_fd.tell()
-        try:
-            self.source_fd.seek(self.offset)
-            bytes_left = self.length
-            while bytes_left > 0:
-                chunk = self.source_fd.read(min(bytes_left, 4096 * 1024))
-                out_fd.write(chunk)
-                bytes_left -= len(chunk)
-        finally:
-            self.source_fd.seek(current_pos)
-
-    def read(self) -> bytes:
-        current_pos = self.source_fd.tell()
-        try:
-            self.source_fd.seek(self.offset)
-            return self.source_fd.read(self.length)
-        finally:
-            self.source_fd.seek(current_pos)
+from .security import security_spec
+from .tre import read_tre_list, tre_list_to_fields
 
 
 @dataclass
 class NumBands(Spec[int]):
 
+    name: str = ""
+
     MAX_NBANDS: ClassVar[int] = 9
 
     @override
-    def read(self, fd: BinaryIO) -> int:
-        nbands = Int("NBANDS", 1).read(fd)
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> int:
+        nbands = Int("NBANDS", 1).parse(fd, ctx)
         if nbands == 0:
-            nbands = Int("XBANDS", 4).read(fd)
+            nbands = Int("XBANDS", 4).parse(fd, ctx)
         return nbands
 
     @override
-    def to_fields(self, value: int) -> list[Field]:
+    def _emit(self, value: int, *, ctx: EmitContext) -> list[Field]:
         if value <= self.MAX_NBANDS:
-            return Int("NBANDS", 1).to_fields(value)
+            return Int("NBANDS", 1).to_fields(value, ctx)
 
-        return Int("NBANDS", 1).to_fields(0) + Int("XBANDS", 4).to_fields(value)
+        nbands = Int("NBANDS", 1).to_fields(0, ctx)
+        xbands = Int("XBANDS", 4).to_fields(value, ctx)
+        return nbands + xbands
 
 
 @dataclass
 class CompressionSpec(Spec[Compression]):
 
-    name: str
-
     @override
-    def read(self, fd: BinaryIO) -> Compression:
-        ic = BcsString("IC", 2).read(fd)
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> Compression:
+        ic = BcsString("IC", 2).parse(fd, ctx)
         kwargs = {"IC": ic}
 
         if ic not in {"NC", "NM"}:
-            kwargs["COMRAT"] = BcsString("COMRAT", 4).read(fd)
+            kwargs["COMRAT"] = BcsString("COMRAT", 4).parse(fd, ctx)
 
         return Compression(**kwargs)
 
     @override
-    def to_fields(self, value: Compression) -> list[Field]:
-        out_fields = BcsString("IC", 2).to_fields(value.IC)
+    def _emit(self, value: Compression, *, ctx: EmitContext) -> list[Field]:
+        out_fields = BcsString("IC", 2).to_fields(value.IC, ctx)
 
         if Compression.IC not in {"NC", "NM"}:
-            out_fields += BcsString("COMRAT", 4).to_fields(value.COMRAT)
+            out_fields += BcsString("COMRAT", 4).to_fields(value.COMRAT, ctx)
 
         return out_fields
 
 
 @dataclass
-class IcordsSpec(Spec[NoCoords | Coords]):
-
-    name: str
+class IcordsSpec(Spec[Coords | None]):
 
     @override
-    def read(self, fd: BinaryIO) -> NoCoords | Coords:
-        ic_rep = BcsString("ICORDS", 1).read(fd)
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> Coords | None:
+        ic_rep = BcsString("ICORDS", 1).parse(fd, ctx)
 
         if ic_rep == "":
-            return NoCoords()
+            return None
 
         args = [ic_rep]
-        args.extend(BcsString("", 15).read(fd) for _ in range(4))
+        args.extend(BcsString("", 15).parse(fd, ctx) for _ in range(4))
 
         return Coords(*args)
 
     @override
-    def to_fields(self, value: NoCoords | Coords) -> list[Field]:
-        if isinstance(value, NoCoords):
-            return BcsString("ICORDS", 1).to_fields(" ")
+    def _emit(self, value: Coords | None, *, ctx: EmitContext) -> list[Field]:
+        if value is None:
+            return BcsString("ICORDS", 1).to_fields(" ", ctx)
 
-        icords_fields = BcsString("ICORDS", 1).to_fields(value.ICORDS)
+        icords_fields = BcsString("ICORDS", 1).to_fields(value.ICORDS, ctx)
         igeolo_bytes = b"".join(
             BcsString("", 15).encode(c)
             for c in [
@@ -151,33 +125,33 @@ class LutsSpec(Spec[list[list[int]]]):
     name: str
 
     @override
-    def read(self, fd: BinaryIO) -> list[list[int]]:
-        nluts = Int("NLUTS", 1).read(fd)
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[list[int]]:
+        nluts = Int("NLUTS", 1).parse(fd, ctx)
         if nluts == 0:
             return []
 
-        nelut = Int("NELUT", 5).read(fd)
+        nelut = Int("NELUT", 5).parse(fd, ctx)
 
         lut_spec = BinaryInt("LUTD", 1)
-        return [[lut_spec.read(fd) for _ in range(nelut)] for _ in range(nluts)]
+        return [[lut_spec.parse(fd, ctx) for _ in range(nelut)] for _ in range(nluts)]
 
     @override
-    def to_fields(self, value: list[list[int]]) -> list[Field]:
+    def _emit(self, value: list[list[int]], *, ctx: EmitContext) -> list[Field]:
         nluts = len(value)
-        out = Int("NLUTS", 1).to_fields(nluts)
+        out = Int("NLUTS", 1).to_fields(nluts, ctx)
 
         if nluts == 0:
             return out
 
         nelut = len(value[0])
-        out += Int("NELUT", 5).to_fields(nelut)
+        out += Int("NELUT", 5).to_fields(nelut, ctx)
 
         if not all(len(lut) == nelut for lut in value):
             raise ValueError
 
         for lut in value:
             for entry in lut:
-                out += BinaryInt("LUTD", 1).to_fields(entry)
+                out += BinaryInt("LUTD", 1).to_fields(entry, ctx)
 
         return out
 
@@ -189,7 +163,7 @@ image_head_spec: list[Spec[Any]] = [
     BcsString("IDATIM", 14),
     BcsString("TGTID", 17),
     BcsString("IID2", 80),
-    DataclassRecord("security", Security, security_spec),
+    DataclassRecord(Security, security_spec, name="security"),
     BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
     BcsString("ISORCE", 42),
     Int("NROWS", 8),
@@ -200,17 +174,16 @@ image_head_spec: list[Spec[Any]] = [
     Int("ABPP", 2),
     BcsStringEnum("PJUST", 1, enum=PixelJustification),
     IcordsSpec("location"),
-    VariableLengthList(
-        "comments",
-        Int("NICOM", 1, NonNegative()),
-        EcsString("ICOM", 80),
+    PrefixedList(
+        name="comments",
+        count=Int("NICOM", 1, NonNegative()),
+        body=EcsString("ICOM", 80),
     ),
     CompressionSpec("compression"),
-    VariableLengthList(
-        "bands",
-        NumBands(),
-        DataclassRecord(
-            "",
+    PrefixedList(
+        name="bands",
+        count=NumBands(),
+        body=DataclassRecord(
             BandInfo,
             [
                 BcsString("IREPBAND", 2),
@@ -239,7 +212,7 @@ image_head_spec: list[Spec[Any]] = [
 def read_image_segment(fd: BinaryIO, lish: int, li: int) -> ImageSegment:
     start_pos = fd.tell()
 
-    header = Block(image_head_spec).read(fd)
+    header = DictRecord(image_head_spec).parse(fd, ParseContext())
 
     udid = read_tre_list(fd, "UDIDL", "UDOFL")
     ixshd = read_tre_list(fd, "IXSHDL", "IXSOFL")
@@ -248,7 +221,11 @@ def read_image_segment(fd: BinaryIO, lish: int, li: int) -> ImageSegment:
         msg = "Image segment header has wrong length"
         raise RuntimeError(msg)
 
-    data_proxy = DeferredImageData(source_fd=fd, offset=fd.tell(), length=li)
+    path = None
+    if hasattr(fd, "name") and isinstance(fd.name, str) and Path(fd.name).exists():
+        path = fd.name
+
+    data_proxy = DeferredImageData(path=path, offset=fd.tell(), length=li)
     fd.seek(li, SEEK_CUR)
 
     valid_fields = {f.name for f in fields(ImageSegment)}
@@ -261,7 +238,8 @@ def read_image_segment(fd: BinaryIO, lish: int, li: int) -> ImageSegment:
 
 
 def image_to_fields(image: ImageSegment) -> list[Field]:
-    out_fields = Block(image_head_spec).fields_from(vars(image))
+    ctx = EmitContext(vars(image))
+    out_fields = DictRecord(image_head_spec).to_fields(vars(image), ctx)
 
     udid_fields = tre_list_to_fields(image.UDID, "UDIDL", "UDOFL")
     out_fields.extend(udid_fields)

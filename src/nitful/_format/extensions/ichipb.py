@@ -1,12 +1,18 @@
-from biif._dsl.spec import BcsIntEnum, BcsString, Constant, DataclassRecord, Fixed, Int
-from biif._dsl.validator import NonNegative
-from biif._format.tre import register_tre
-from biif.models.extensions.ichipb import ICHIPB, AnamorphicCorrection, TransformFlag
+from nitful._dsl.spec import (
+    BcsIntEnum,
+    BcsString,
+    Constant,
+    DataclassRecord,
+    Fixed,
+    Int,
+)
+from nitful._dsl.validator import NonNegative
+from nitful._format.tre import register_tre
+from nitful.extensions.ichipb import ICHIPB, AnamorphicCorrection, TransformFlag
 
 ichipb_spec = DataclassRecord(
-    name="ICHIPB_RECORD",
-    model_cls=ICHIPB,
-    specs=[
+    ICHIPB,
+    [
         Constant(BcsString("CETAG", 6), "ICHIPB"),
         Constant(Int("CEL", 5), 224),
         BcsIntEnum("XFRM_FLAG", 2, enum=TransformFlag),
