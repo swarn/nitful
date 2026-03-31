@@ -3,7 +3,7 @@
 from . import (
     cscsdb,
     csephb,
-    # csexrb,
+    csexrb,
     ichipb,
     rpc00b,
 )
@@ -11,7 +11,7 @@ from . import (
 __all__ = [
     "cscsdb",
     "csephb",
-    # "csexrb",
+    "csexrb",
     "ichipb",
     "rpc00b",
 ]

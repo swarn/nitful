@@ -27,7 +27,7 @@ from nitful._dsl.spec import (
     VariantRecord,
     Vector,
 )
-from nitful._dsl.validator import Positive, Range
+from nitful._dsl.validator import NonNegative, Positive, Range
 from nitful._format.des import register_des
 from nitful._format.security import security_spec
 from nitful.core.common import Security
@@ -550,15 +550,19 @@ cscsdb = DataclassRecord(
             condition=Bool("DIRECT_COVARIANCE_FLAG"),
             body=direct_cover,
         ),
-        ReservedExtensions({
-            1: SizedList(
-                name="adj_param_spdcfs",
-                # Because the spec references NUM_PARA here, I assume that this
-                # extension only appears when direct covariance is supplied.
-                count=lambda ctx: len(ctx["direct_covar"].adjustments),
-                body=Int("SPDCF_ID_ADJ", 2, Positive()),
-            ),
-        }),
+        ReservedExtensions(
+            Int("RESERVED_LEN", 9, NonNegative()),
+            Int("MASK_LEN", 2, Positive()),
+            {
+                1: SizedList(
+                    name="adj_param_spdcfs",
+                    # Because the spec references NUM_PARA here, I assume that this
+                    # extension only appears when direct covariance is supplied.
+                    count=lambda ctx: len(ctx["direct_covar"].adjustments),
+                    body=Int("SPDCF_ID_ADJ", 2, Positive()),
+                ),
+            },
+        ),
     ],
 )
 

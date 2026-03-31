@@ -2,6 +2,7 @@
 from . import (
     cscsdb,
     csephb,
+    csexrb,
     ichipb,
     rpc00b,
 )

@@ -39,7 +39,7 @@ from nitful._dsl.spec import (
     VariantRecord,
     Vector,
 )
-from nitful._dsl.validator import Literals, Positive, Range
+from nitful._dsl.validator import Literals, NonNegative, Positive, Range
 from nitful._format.des import register_des
 from nitful._format.eci import eci_spec
 from nitful._format.security import security_spec
@@ -118,6 +118,8 @@ def _csephb_spec() -> list[Spec[Any]]:
             ]),
         ),
         ReservedExtensions(
+            Int("RESERVED_LEN", 9, NonNegative()),
+            Int("MASK_LEN", 2, Positive()),
             cases={
                 1: RFA1(),
             },

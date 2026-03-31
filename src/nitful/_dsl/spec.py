@@ -73,6 +73,11 @@ routing between Python objects, DSL nodes, and NITF fields. Anonymous specs
 
 - Emitting: The parent node does not try to extract a sub-field. Instead, it
   passes its entire data context straight through to the anonymous child.
+
+- Note that anonymous leaves only make sense as children of nodes like `Vector`
+  which explicitly distribute values to their children. Otherwise, during
+  serialization they are passed the entire context instead of a scalar value,
+  and crash.
 """
 
 from __future__ import annotations
@@ -733,13 +738,15 @@ class BinaryInt(FieldSpec[int]):
 
 @dataclass
 class Constant[T](RuleSpec[T]):
-    """A wrapper that supplies and expects a specific value."""
+    """A wrapper that both supplies and expects a specific value."""
 
     spec: FieldSpec[T]
     value: T
+    name: str = field(default="", init=False)
 
     def __post_init__(self) -> None:
-        self.name: str = self.spec.name
+        # Get the inner spec's name in order to route it the correct value.
+        self.name = self.spec.name
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
@@ -766,10 +773,13 @@ class Override[T, V](RuleSpec[T | V]):
     """Override specific byte patterns with a given value."""
 
     spec: FieldSpec[T]
-
     mapping: dict[bytes, V]
+    name: str = field(default="", init=False)
 
     def __post_init__(self) -> None:
+        # Get the inner spec's name in order to route it the correct value.
+        self.name = self.spec.name
+
         for o_bytes in self.mapping:
             if len(o_bytes) != self.spec.size:
                 msg = f"Override {o_bytes!r} is wrong size"
@@ -841,6 +851,29 @@ class Vector[T](RuleSpec[list[T]]):
         for spec, v in zip(self.specs, value, strict=True):
             fields.extend(spec.to_fields(v, ctx))
 
+        return fields
+
+
+@dataclass
+class VarString(RuleSpec[str]):
+    """A string prefixed by a length field."""
+
+    len_spec: FieldSpec[int]
+
+    @override
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> str:
+        length = self.len_spec.parse(fd, ctx)
+        if length == 0:
+            return ""
+        return BcsString("", length).parse(fd, ctx)
+
+    @override
+    def _emit(self, value: str, *, ctx: EmitContext) -> list[Field]:
+        if not value:
+            return self.len_spec.to_fields(0, ctx)
+
+        fields = self.len_spec.to_fields(len(value), ctx)
+        fields.extend(BcsString("", len(value)).to_fields(value, ctx))
         return fields
 
 
@@ -970,18 +1003,12 @@ class Conditional[T](RuleSpec[T | None]):
 
     @override
     def _emit(self, value: T | None, *, ctx: EmitContext) -> list[Field]:
-        should_exist = self.condition(ctx)
-
-        if should_exist and value is None:
-            msg = f"Condition '{self.name}' is True, but no value was provided."
-            raise ValueError(msg)
-
-        if not should_exist and value is not None:
-            msg = f"Condition '{self.name}' is False, but a value was provided."
-            raise ValueError(msg)
+        if not self.condition(ctx):
+            return []
 
         if value is None:
-            return []
+            msg = f"{self.display_name()} is True, but no value was provided."
+            raise ValueError(msg)
 
         return self.body.to_fields(value, ctx)
 
@@ -1184,6 +1211,9 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
     Unrecognized areas are preserved as raw bytes to allow round-tripping.
     """
 
+    size_spec: Spec[int]
+    msize_spec: Spec[int]
+
     # Maps a **1-based** area index to a Spec. The Spec must have a non-empty
     # name; each name will be written with None or the Spec value.
     cases: dict[int, Spec[Any]]
@@ -1201,20 +1231,20 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> dict[str, Any]:
-        total_len = Int("RESERVED_LEN", 9).parse(fd, ctx)
+        total_len = self.size_spec.parse(fd, ctx)
 
         # Initialize all defined areas to None in the parent scope.
         for spec in self.cases.values():
             if spec.name:
                 ctx[spec.name] = None
 
-        # Intialize the unknown entries.
+        # Initialize the unknown entries.
         ctx[self.unknown_name] = {}
 
         if total_len == 0:
             return ctx.local_scope
 
-        mask_len = Int("MASK_LEN", 2).parse(fd, ctx)
+        mask_len = self.msize_spec.parse(fd, ctx)
         mask = BcsString("RESERVED_FIELD_MASK", mask_len).parse(fd, ctx)
 
         unknowns: dict[int, bytes] = {}
@@ -1244,7 +1274,7 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
                 active_indices.add(i)
 
         if not active_indices:
-            return Int("RESERVED_LEN", 9).to_fields(0, ctx)
+            return self.size_spec.to_fields(0, ctx)
 
         mask_len = max(active_indices)
         mask_chars: list[str] = []
@@ -1260,8 +1290,8 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
             if i in unknowns:
                 payload_bytes = unknowns[i]
                 size = len(payload_bytes)
-                len_field = Int(f"RESERVED_LEN_AREA{i}", 9).to_fields(size, ctx=ctx)
-                area_fields.extend(len_field)
+                alen_field = Int(f"RESERVED_LEN_AREA{i}", 9).to_fields(size, ctx=ctx)
+                area_fields.extend(alen_field)
                 area_fields.append(Field(f"RESERVED_AREA_{i}_DATA", payload_bytes))
             else:
                 spec = self.cases[i]
@@ -1269,17 +1299,14 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
                 area_fields.extend(block.to_fields(value, ctx))
 
         mask_str = "".join(mask_chars)
-        len_field = Int("MASK_LEN", 2).to_fields(mask_len, ctx)
+        mlen_field = self.msize_spec.to_fields(mask_len, ctx)
         mask_field = BcsString("RESERVED_FIELD_MASK", mask_len).to_fields(mask_str, ctx)
-        header_fields = [*len_field, *mask_field]
+        header_fields = [*mlen_field, *mask_field]
 
         total_len = field_size(header_fields) + field_size(area_fields)
+        rfa_len_field = self.size_spec.to_fields(total_len, ctx)
 
-        return [
-            *Int("RESERVED_LEN", 9).to_fields(total_len, ctx),
-            *header_fields,
-            *area_fields,
-        ]
+        return [*rfa_len_field, *header_fields, *area_fields]
 
 
 @dataclass
