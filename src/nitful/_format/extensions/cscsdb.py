@@ -14,12 +14,12 @@ from nitful._dsl.spec import (
     HMSeconds,
     Int,
     IsoDate,
-    Marker,
     Optional,
     Override,
     PrefixedArray,
     PrefixedList,
     ReservedExtensions,
+    SegmentRecord,
     SizedBlock,
     SizedList,
     Switch,
@@ -30,7 +30,6 @@ from nitful._dsl.spec import (
 from nitful._dsl.validator import NonNegative, Positive, Range
 from nitful._format.des import register_des
 from nitful._format.security import security_spec
-from nitful.core.common import Security
 from nitful.extensions.cscsdb import (
     CSCSDB,
     BasicPayloadSpdcf,
@@ -489,15 +488,13 @@ core_set = DataclassRecord(
 )
 
 
-cscsdb = DataclassRecord(
+cscsdb = SegmentRecord(
     CSCSDB,
-    name="CSCSDB",
-    specs=[
-        Marker("DES START CSCSDB"),
+    subheader_specs=[
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSCSDB"),
         Constant(Int("DESVER", 2), 1),
-        DataclassRecord(Security, security_spec, name="security"),
+        security_spec,
         SizedBlock(
             Int("DESSHL", 4),
             [
@@ -515,7 +512,8 @@ cscsdb = DataclassRecord(
                 Constant(Int("RESERVEDSUBH_LEN", 4), 0),
             ],
         ),
-        Marker("DES DATA START"),
+    ],
+    data_specs=[
         IsoDate("COV_VERSION_DATE"),
         PrefixedList(
             name="core_sets",

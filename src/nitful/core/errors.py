@@ -1,30 +1,45 @@
+from dataclasses import dataclass
+from typing import ClassVar, override
+
+
 class NitfError(Exception):
-    """Base exception for all errors raised by BIIF."""
+    """Base exception for all nitful library errors."""
 
 
-class ParseError(NitfError):
+@dataclass
+class SpecError(NitfError):
+    """Base exception for errors during parsing and serialization."""
 
-    def __init__(self, msg: str, path: list[str], offset: int) -> None:
-        self.base_msg: str = msg
-        self.path: list[str] = path
-        self.offset: int = offset
-        super().__init__(self._format_msg())
+    base_msg: str
+    path: list[str]
+    offset: int
+    history: str
 
-    def _format_msg(self) -> str:
-        path_str = " -> ".join(self.path)
-        return (
-            f"Parse failed at byte {self.offset} in [{path_str}]"
-            f"\nReason: {self.base_msg}"
-        )
+    action: ClassVar[str] = "processing"
+
+    def __post_init__(self) -> None:
+        super().__init__(self.__str__())
+
+    @override
+    def __str__(self) -> str:
+        msg = f"Error {self.action} at byte [{self.offset}]"
+
+        msg += f"\n\nCause: {self.base_msg}"
+
+        path_str = "\n  -> ".join(self.path)
+        msg += f"\n\nWhere:\n  {path_str}"
+
+        if self.history:
+            msg += f"\n\nRecent fields:\n{self.history}"
+
+        return msg
 
 
-class SerializeError(NitfError):
+@dataclass
+class ParseError(SpecError):
+    action: ClassVar[str] = "parsing"
 
-    def __init__(self, msg: str, path: list[str]) -> None:
-        self.base_msg: str = msg
-        self.path: list[str] = path
-        super().__init__(self._format_msg())
 
-    def _format_msg(self) -> str:
-        path_str = " -> ".join(self.path)
-        return f"Serialization failed at [{path_str}]\nReason: {self.base_msg}"
+@dataclass
+class SerializeError(SpecError):
+    action: ClassVar[str] = "emitting"

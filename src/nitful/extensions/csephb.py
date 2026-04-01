@@ -7,7 +7,7 @@ from datetime import date
 from enum import IntEnum
 from uuid import UUID as UUID_T
 
-from nitful.core.common import DES, Security
+from nitful.core.common import DES
 from nitful.core.eci import ECI
 
 type Array2D = list[list[float]]
@@ -15,8 +15,6 @@ type Array2D = list[list[float]]
 
 @dataclass(kw_only=True)
 class CSEPHB(DES):
-
-    security: Security
 
     # An ID for this DES.
     UUID: UUID_T

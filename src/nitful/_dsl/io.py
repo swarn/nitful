@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
 from .spec import Field
 
@@ -28,10 +28,10 @@ def dump_fields(
     field_list = list(fields)
 
     # Inclusion lists if filtering.
-    tre_il = set(tre_names or [])
-    des_il = set(des_names or [])
-    image_il = set(image_nums or [])
-    filtering = bool(tre_il or des_il or image_il or header)
+    included_tre = set(tre_names or [])
+    included_des = set(des_names or [])
+    included_image = set(image_nums or [])
+    filtering = bool(included_tre or included_des or included_image or header)
 
     image_num = 0
     tre_num = 0
@@ -44,20 +44,19 @@ def dump_fields(
 
     lines.append(format(" FILE HEADER ", f"=^{WIDTH}"))
 
-    for f in field_list:
-        if f.name == "IMAGE START":
+    for i, f in enumerate(field_list):
+        if f.name == "IM":
             tre_num = 0
             image_num += 1
 
-            lines = output if not filtering or image_num in image_il else filtered
+            keep = not filtering or image_num in included_image
+            lines = output if keep else filtered
 
-            img_title = format(f" IMAGE SEGMENT {image_num} ", f"=^{WIDTH}")
-            lines.append(img_title)
-
-            continue
+            lines.append(format(f" IMAGE SEGMENT {image_num} ", f"=^{WIDTH}"))
 
         if f.name == "IMAGE DATA":
-            lines = output if not filtering or image_num in image_il else filtered
+            keep = not filtering or image_num in included_image
+            lines = output if keep else filtered
 
             title = f" IMAGE {image_num} DATA: {len(f.value)} bytes "
             lines.extend([
@@ -79,8 +78,8 @@ def dump_fields(
             keep = (
                 not filtering
                 or (image_num == 0 and header)
-                or image_num in image_il
-                or tre_name in tre_il
+                or image_num in included_image
+                or tre_name in included_tre
             )
             lines = output if keep else filtered
 
@@ -88,15 +87,15 @@ def dump_fields(
             title = f" {location} TRE {tre_num}: {f.value.decode()} "
             lines.append(format(title, f"=^{WIDTH}"))
 
-        if f.name.startswith("DES START"):
+        if f.name == "DE":
             des_num += 1
-            desname = f.name.split()[-1]
+            desname = cast(bytes, field_list[i + 1].value).decode().strip()
 
-            lines = output if not filtering or desname in des_il else filtered
+            keep = not filtering or desname in included_des
+            lines = output if keep else filtered
 
             title = format(f" DES {des_num}: {desname} ", f"=^{WIDTH}")
             lines.append(title)
-            continue
 
         if len(f.value) == 0:
             continue

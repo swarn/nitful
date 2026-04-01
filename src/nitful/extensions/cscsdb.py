@@ -5,7 +5,7 @@ from datetime import date
 from enum import IntEnum
 from uuid import UUID as UUID_T
 
-from nitful.core.common import DES, Security
+from nitful.core.common import DES
 
 # The spec advises that alternative forms of direct covariance may be added in
 # the future.
@@ -16,7 +16,6 @@ type TsCalibration = TsGroup1 | TsGroup2 | TsGroup3 | TsGroup4 | TsGroup5
 
 @dataclass(kw_only=True)
 class CSCSDB(DES):
-    security: Security
 
     # An ID for this DES.
     UUID: UUID_T

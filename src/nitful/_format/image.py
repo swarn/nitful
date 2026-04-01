@@ -17,13 +17,12 @@ from nitful._dsl.spec import (
     EmitContext,
     Field,
     Int,
-    Marker,
     ParseContext,
     PrefixedList,
     Spec,
 )
 from nitful._dsl.validator import Literals, NonNegative, Positive, Range
-from nitful.core.common import EncryptionLevel, Security
+from nitful.core.common import EncryptionLevel
 from nitful.core.image import (
     BandInfo,
     Compression,
@@ -79,7 +78,7 @@ class CompressionSpec(Spec[Compression]):
     def _emit(self, value: Compression, *, ctx: EmitContext) -> list[Field]:
         out_fields = BcsString("IC", 2).to_fields(value.IC, ctx)
 
-        if Compression.IC not in {"NC", "NM"}:
+        if value.IC not in {"NC", "NM"}:
             out_fields += BcsString("COMRAT", 4).to_fields(value.COMRAT, ctx)
 
         return out_fields
@@ -157,13 +156,12 @@ class LutsSpec(Spec[list[list[int]]]):
 
 
 image_head_spec: list[Spec[Any]] = [
-    Marker("IMAGE START"),
     Constant(BcsString("IM", 2), "IM"),
     BcsString("IID1", 10),
     BcsString("IDATIM", 14),
     BcsString("TGTID", 17),
     BcsString("IID2", 80),
-    DataclassRecord(Security, security_spec, name="security"),
+    security_spec,
     BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
     BcsString("ISORCE", 42),
     Int("NROWS", 8),
@@ -209,13 +207,15 @@ image_head_spec: list[Spec[Any]] = [
 ]
 
 
-def read_image_segment(fd: BinaryIO, lish: int, li: int) -> ImageSegment:
+def read_image_segment(
+    fd: BinaryIO, lish: int, li: int, ctx: ParseContext
+) -> ImageSegment:
     start_pos = fd.tell()
 
     header = DictRecord(image_head_spec).parse(fd, ParseContext())
 
-    udid = read_tre_list(fd, "UDIDL", "UDOFL")
-    ixshd = read_tre_list(fd, "IXSHDL", "IXSOFL")
+    udid = read_tre_list(fd, "UDIDL", "UDOFL", ctx)
+    ixshd = read_tre_list(fd, "IXSHDL", "IXSOFL", ctx)
 
     if fd.tell() != start_pos + lish:
         msg = "Image segment header has wrong length"
@@ -237,17 +237,20 @@ def read_image_segment(fd: BinaryIO, lish: int, li: int) -> ImageSegment:
     return ImageSegment(**kwargs, data=data_proxy)
 
 
-def image_to_fields(image: ImageSegment) -> list[Field]:
+def image_to_fields(
+    image: ImageSegment, ctx: EmitContext
+) -> tuple[list[Field], list[Field]]:
     ctx = EmitContext(vars(image))
     out_fields = DictRecord(image_head_spec).to_fields(vars(image), ctx)
 
-    udid_fields = tre_list_to_fields(image.UDID, "UDIDL", "UDOFL")
+    udid_fields = tre_list_to_fields(image.UDID, "UDIDL", "UDOFL", ctx)
     out_fields.extend(udid_fields)
 
-    ixshd_fields = tre_list_to_fields(image.IXSHD, "IXSHDL", "IXSOFL")
+    ixshd_fields = tre_list_to_fields(image.IXSHD, "IXSHDL", "IXSOFL", ctx)
     out_fields.extend(ixshd_fields)
 
     out_fields.append(Field(name="IMAGE DATA START", value=b""))
-    out_fields.append(Field(name="IMAGE DATA", value=image.data))
 
-    return out_fields
+    data_field = Field(name="IMAGE DATA", value=image.data)
+
+    return out_fields, [data_field]

@@ -83,8 +83,9 @@ routing between Python objects, DSL nodes, and NITF fields. Anonymous specs
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections import ChainMap
+from collections import ChainMap, deque
 from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import KW_ONLY, dataclass, field, fields
 from dataclasses import Field as DataclassField
 from datetime import UTC, date, datetime, timezone
@@ -150,6 +151,9 @@ class Context:
         # Stacked indices for tracking position inside lists.
         self._indices: list[int] = []
 
+        # Recently-processed fields, to add context to error messages.
+        self._recent_fields: deque[tuple[int, str, Any]] = deque(maxlen=5)
+
     def __getitem__(self, key: str) -> Any:
         return self._contexts[key]
 
@@ -162,17 +166,16 @@ class Context:
     def get(self, key: str, default: Any = None) -> Any:
         return self._contexts.get(key, default)
 
-    def push_scope(self, init: dict[str, Any] | None = None) -> None:
-        """Enter a new scope by pushing a dict to the front."""
-        self._contexts.maps.insert(0, init or {})
+    @contextmanager
+    def scope(self, init: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+        """Enter a new local scope and yield it."""
+        local_scope = init if init is not None else {}
+        self._contexts.maps.insert(0, local_scope)
 
-    def pop_scope(self) -> dict[str, Any]:
-        """Exit the current scope and return its exclusively local values."""
-        if len(self._contexts.maps) <= 1:
-            msg = "Cannot pop the root scope."
-            raise RuntimeError(msg)
-
-        return cast(dict[str, Any], self._contexts.maps.pop(0))
+        try:
+            yield local_scope
+        finally:
+            self._contexts.maps.pop(0)
 
     @property
     def local_scope(self) -> dict[str, Any]:
@@ -196,10 +199,24 @@ class Context:
 
     @property
     def subscripts(self) -> str:
+        """Get a string with the current indices, e.g. [2][0]."""
         if not self._indices:
             return ""
 
         return "".join(f"[{i}]" for i in self._indices)
+
+    def log_field(self, offset: int, name: str, value: Any) -> None:
+        self._recent_fields.append((offset, name, value))
+
+    @property
+    def recent_fields(self) -> str:
+        """Get a string with the most recently processed fields."""
+        if not self._recent_fields:
+            return ""
+
+        return "\n".join(
+            f"  [{off}] {name}: {val!r}" for off, name, val in self._recent_fields
+        )
 
 
 class ParseContext(Context):
@@ -220,6 +237,10 @@ class EmitContext(Context):
     """
 
     is_emitting: ClassVar[bool] = True
+
+    def __init__(self, init: dict[str, Any] | None = None) -> None:
+        super().__init__(init)
+        self.current_offset: int = 0
 
 
 @dataclass
@@ -254,9 +275,13 @@ class Spec[T](ABC):
                 ctx[self.name] = val
         except ParseError as e:
             e.path.insert(0, trace_name)
-            raise ParseError(e.base_msg, e.path, e.offset) from e.__cause__
+            raise ParseError(
+                e.base_msg, e.path, e.offset, ctx.recent_fields
+            ) from e.__cause__
         except Exception as e:
-            raise ParseError(str(e), [trace_name], start_offset) from e
+            raise ParseError(
+                str(e), [trace_name], start_offset, ctx.recent_fields
+            ) from e
         else:
             return val
 
@@ -268,9 +293,13 @@ class Spec[T](ABC):
             return self._emit(value, ctx=ctx)
         except SerializeError as e:
             e.path.insert(0, trace_name)
-            raise SerializeError(e.base_msg, e.path) from e.__cause__
+            raise SerializeError(
+                e.base_msg, e.path, e.offset, ctx.recent_fields
+            ) from e.__cause__
         except Exception as e:
-            raise SerializeError(str(e), [trace_name]) from e
+            raise SerializeError(
+                str(e), [trace_name], ctx.current_offset, ctx.recent_fields
+            ) from e
 
     def display_name(self) -> str:
         """Used only for displaying the name in errors."""
@@ -319,8 +348,10 @@ class FieldSpec[T](Spec[T], ABC):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
-        b = fd.read(self.size)
-        return self.decode(b)
+        start = fd.tell()
+        val = self.decode(fd.read(self.size))
+        ctx.log_field(start, self.name + ctx.subscripts, val)
+        return val
 
     @override
     def _emit(self, value: T, *, ctx: EmitContext) -> list[Field]:
@@ -335,6 +366,9 @@ class FieldSpec[T](Spec[T], ABC):
                 f"but got {len(encoded)} bytes (Payload: {encoded!r})"
             )
             raise RuntimeError(msg)
+
+        ctx.log_field(ctx.current_offset, self.name + ctx.subscripts, value)
+        ctx.current_offset += self.size
 
         full_name = self.name + ctx.subscripts
         return [Field(full_name, encoded)]
@@ -456,6 +490,19 @@ class EcsString(FieldSpec[str]):
     @override
     def decode(self, encoded: bytes) -> str:
         return encoded.decode("latin_1").rstrip()
+
+
+@dataclass
+class FixedBytes(FieldSpec[bytes]):
+    """A fixed number of bytes."""
+
+    @override
+    def encode(self, decoded: bytes) -> bytes:
+        return decoded
+
+    @override
+    def decode(self, encoded: bytes) -> bytes:
+        return encoded
 
 
 @dataclass
@@ -1031,12 +1078,10 @@ class DataclassRecord[T: DataclassProtocol](RuleSpec[T]):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
-        ctx.push_scope()
+        with ctx.scope() as local_kwargs:
+            for spec in self.specs:
+                spec.parse(fd, ctx)
 
-        for spec in self.specs:
-            spec.parse(fd, ctx)
-
-        local_kwargs = ctx.pop_scope()
         valid_keys = local_kwargs.keys() & self.field_names
         filtered_kwargs = {k: local_kwargs[k] for k in valid_keys}
         return self.model_cls(**filtered_kwargs)
@@ -1044,14 +1089,13 @@ class DataclassRecord[T: DataclassProtocol](RuleSpec[T]):
     @override
     def _emit(self, value: T, *, ctx: EmitContext) -> list[Field]:
         val_dict = vars(value)
-        ctx.push_scope(val_dict)
 
-        out_fields: list[Field] = []
-        for spec in self.specs:
-            child_val = val_dict.get(spec.name) if spec.name else val_dict
-            out_fields.extend(spec.to_fields(child_val, ctx))
+        with ctx.scope(val_dict):
+            out_fields: list[Field] = []
+            for spec in self.specs:
+                child_val = val_dict.get(spec.name) if spec.name else val_dict
+                out_fields.extend(spec.to_fields(child_val, ctx))
 
-        ctx.pop_scope()
         return out_fields
 
     def matches(self, value: object) -> TypeGuard[T]:
@@ -1109,23 +1153,20 @@ class DictRecord(RuleSpec[dict[str, Any]]):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> dict[str, Any]:
-        ctx.push_scope()
+        with ctx.scope() as local_kwargs:
+            for spec in self.specs:
+                spec.parse(fd, ctx)
 
-        for spec in self.specs:
-            spec.parse(fd, ctx)
-
-        return ctx.pop_scope()
+            return local_kwargs
 
     @override
     def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Field]:
-        ctx.push_scope(value)
+        with ctx.scope(value):
+            out_fields: list[Field] = []
+            for spec in self.specs:
+                child_val = value.get(spec.name) if spec.name else value
+                out_fields.extend(spec.to_fields(child_val, ctx))
 
-        out_fields: list[Field] = []
-        for spec in self.specs:
-            child_val = value.get(spec.name) if spec.name else value
-            out_fields.extend(spec.to_fields(child_val, ctx))
-
-        ctx.pop_scope()
         return out_fields
 
 
@@ -1200,6 +1241,44 @@ class Switch[TagType, PayloadType](RuleSpec[PayloadType]):
             raise ValueError(msg)
 
         return self.cases[tag_to_write].to_fields(value, ctx)
+
+
+@dataclass
+class SegmentRecord[T: DataclassProtocol](DataclassRecord[T]):
+    """Splits a dataclass into header and data fields.
+
+    NITF measures the length of the segment subheader and segment data
+    separately.
+    """
+
+    model_cls: type[T]
+    subheader_specs: list[Spec[Any]]
+    data_specs: list[Spec[Any]]
+
+    specs: Sequence[Spec[Any]] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.specs = self.subheader_specs + self.data_specs
+        super().__post_init__()
+
+    def emit_segment(
+        self, value: T, ctx: EmitContext
+    ) -> tuple[list[Field], list[Field]]:
+        """As _emit, but return the fields split into subheader and data fields."""
+        val_dict = vars(value)
+
+        with ctx.scope(val_dict):
+            sub_fields: list[Field] = []
+            for spec in self.subheader_specs:
+                child_val = val_dict.get(spec.name) if spec.name else val_dict
+                sub_fields.extend(spec.to_fields(child_val, ctx))
+
+            data_fields: list[Field] = []
+            for spec in self.data_specs:
+                child_val = val_dict.get(spec.name) if spec.name else val_dict
+                data_fields.extend(spec.to_fields(child_val, ctx))
+
+            return sub_fields, data_fields
 
 
 @dataclass

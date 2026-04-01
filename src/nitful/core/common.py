@@ -57,10 +57,12 @@ class DES:
     DESID: str
     DESVER: int
 
+    security: Security
+
 
 @dataclass(kw_only=True)
 class UnknownDES(DES):
     """Fallback class for unrecognized DES types."""
 
-    raw_header: bytes
-    raw_data: bytes
+    DESSH: bytes
+    DESDATA: bytes

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, BinaryIO, ClassVar, override
+from typing import BinaryIO, ClassVar, override
 
 from nitful._dsl.spec import (
     BcsIntEnum,
@@ -27,12 +27,12 @@ from nitful._dsl.spec import (
     HMSeconds,
     Int,
     IsoDate,
-    Marker,
     Override,
     ParseContext,
     PrefixedList,
     ReservedExtensions,
     RuleSpec,
+    SegmentRecord,
     SizedBlock,
     Spec,
     Uuid,
@@ -43,7 +43,6 @@ from nitful._dsl.validator import Literals, NonNegative, Positive, Range
 from nitful._format.des import register_des
 from nitful._format.eci import eci_spec
 from nitful._format.security import security_spec
-from nitful.core.common import Security
 from nitful.core.eci import ECI
 from nitful.extensions.csephb import (
     CSEPHB,
@@ -57,86 +56,6 @@ from nitful.extensions.csephb import (
 )
 
 type Array2D = list[list[float]]
-
-
-def _csephb_spec() -> list[Spec[Any]]:
-    return [
-        Marker("DES START CSEPHB"),
-        Constant(BcsString("DE", 2), "DE"),
-        Constant(BcsString("DESID", 25), "CSEPHB"),
-        Constant(Int("DESVER", 2), 2),
-        DataclassRecord(Security, security_spec, name="security"),
-        SizedBlock(
-            Int("DESSHL", 4),
-            [
-                Uuid("UUID"),
-                PrefixedList(
-                    name="images",
-                    count=Override(Int("NUMAIS", 3, Range(0, 998)), {b"ALL": 0}),
-                    body=Int("AISDLVL", 3, Positive()),
-                ),
-                PrefixedList(
-                    name="elements",
-                    count=Int("NUM_ASSOC_ELEM", 3, Range(0, 276)),
-                    body=Uuid("ASSOC_ELEM_UUID"),
-                ),
-                Constant(Int("RESERVEDSUBH_LEN", 4), 0),
-            ],
-        ),
-        Marker("DES DATA START"),
-        BcsIntEnum("QUAL_FLAG_EPH", 1, enum=Quality),
-        VariantRecord(
-            name="interpolation",
-            tag_spec=BcsIntEnum("INTERP_TYPE_EPH", 1, enum=InterpolationType),
-            cases={
-                InterpolationType.NEAREST: DataclassRecord(NearestNeighbor, []),
-                InterpolationType.LINEAR: DataclassRecord(Linear, []),
-                InterpolationType.LAGRANGIAN: DataclassRecord(
-                    Lagrangian, [Int("INTERP_ORDER_EPH", 1, Literals([3, 5, 7]))]
-                ),
-            },
-        ),
-        BcsIntEnum("EPHEM_FLAG", 1, enum=EphemerisSource),
-        VariantRecord(
-            name="frame",
-            tag_spec=BcsIntEnum("ECI_ECF_EPHEM", 1, enum=Frame),
-            cases={
-                Frame.ECI: DataclassRecord(ECI, eci_spec),
-                Frame.ECF: DataclassRecord(ECF, []),
-            },
-        ),
-        Fixed("DT_EPHEM", 13, Range(1e-9, 1000 - 1e-9), ndigits=9),
-        IsoDate("DATE_EPHEM"),
-        HMSeconds("T0_EPHEM"),
-        PrefixedList(
-            name="ephemerides",
-            count=Int("NUM_EPHEM", 5, Positive()),
-            body=Vector([
-                Fixed("EPHEM_X", 12, ndigits=2, sign=True),
-                Fixed("EPHEM_Y", 12, ndigits=2, sign=True),
-                Fixed("EPHEM_Z", 12, ndigits=2, sign=True),
-            ]),
-        ),
-        ReservedExtensions(
-            Int("RESERVED_LEN", 9, NonNegative()),
-            Int("MASK_LEN", 2, Positive()),
-            cases={
-                1: RFA1(),
-            },
-        ),
-        Marker("DES CSEPHB END"),
-    ]
-
-
-class Frame(IntEnum):
-    ECI = 0
-    ECF = 1
-
-
-class InterpolationType(IntEnum):
-    NEAREST = 0
-    LINEAR = 1
-    LAGRANGIAN = 2
 
 
 @dataclass
@@ -187,4 +106,85 @@ class RFA1(RuleSpec[Kinematics]):
         return fields
 
 
-register_des("CSEPHB", 2, DataclassRecord(CSEPHB, _csephb_spec()))
+class Frame(IntEnum):
+    ECI = 0
+    ECF = 1
+
+
+class InterpolationType(IntEnum):
+    NEAREST = 0
+    LINEAR = 1
+    LAGRANGIAN = 2
+
+
+csephb = SegmentRecord(
+    CSEPHB,
+    subheader_specs=[
+        Constant(BcsString("DE", 2), "DE"),
+        Constant(BcsString("DESID", 25), "CSEPHB"),
+        Constant(Int("DESVER", 2), 2),
+        security_spec,
+        SizedBlock(
+            Int("DESSHL", 4),
+            [
+                Uuid("UUID"),
+                PrefixedList(
+                    name="images",
+                    count=Override(Int("NUMAIS", 3, Range(0, 998)), {b"ALL": 0}),
+                    body=Int("AISDLVL", 3, Positive()),
+                ),
+                PrefixedList(
+                    name="elements",
+                    count=Int("NUM_ASSOC_ELEM", 3, Range(0, 276)),
+                    body=Uuid("ASSOC_ELEM_UUID"),
+                ),
+                Constant(Int("RESERVEDSUBH_LEN", 4), 0),
+            ],
+        ),
+    ],
+    data_specs=[
+        BcsIntEnum("QUAL_FLAG_EPH", 1, enum=Quality),
+        VariantRecord(
+            name="interpolation",
+            tag_spec=BcsIntEnum("INTERP_TYPE_EPH", 1, enum=InterpolationType),
+            cases={
+                InterpolationType.NEAREST: DataclassRecord(NearestNeighbor, []),
+                InterpolationType.LINEAR: DataclassRecord(Linear, []),
+                InterpolationType.LAGRANGIAN: DataclassRecord(
+                    Lagrangian, [Int("INTERP_ORDER_EPH", 1, Literals([3, 5, 7]))]
+                ),
+            },
+        ),
+        BcsIntEnum("EPHEM_FLAG", 1, enum=EphemerisSource),
+        VariantRecord(
+            name="frame",
+            tag_spec=BcsIntEnum("ECI_ECF_EPHEM", 1, enum=Frame),
+            cases={
+                Frame.ECI: DataclassRecord(ECI, eci_spec),
+                Frame.ECF: DataclassRecord(ECF, []),
+            },
+        ),
+        Fixed("DT_EPHEM", 13, Range(1e-9, 1000 - 1e-9), ndigits=9),
+        IsoDate("DATE_EPHEM"),
+        HMSeconds("T0_EPHEM"),
+        PrefixedList(
+            name="ephemerides",
+            count=Int("NUM_EPHEM", 5, Positive()),
+            body=Vector([
+                Fixed("EPHEM_X", 12, ndigits=2, sign=True),
+                Fixed("EPHEM_Y", 12, ndigits=2, sign=True),
+                Fixed("EPHEM_Z", 12, ndigits=2, sign=True),
+            ]),
+        ),
+        ReservedExtensions(
+            Int("RESERVED_LEN", 9, NonNegative()),
+            Int("MASK_LEN", 2, Positive()),
+            cases={
+                1: RFA1(),
+            },
+        ),
+    ],
+)
+
+
+register_des("CSEPHB", 2, csephb)

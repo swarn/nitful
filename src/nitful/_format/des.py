@@ -1,20 +1,45 @@
-from io import SEEK_CUR
 from typing import BinaryIO, cast
 
-from nitful._dsl.spec import DataclassRecord, EmitContext, Field, ParseContext
+from nitful._dsl.spec import (
+    BcsString,
+    Constant,
+    EmitContext,
+    Field,
+    FixedBytes,
+    Int,
+    ParseContext,
+    SegmentRecord,
+)
+from nitful._format.security import security_len, security_spec
 from nitful.core.common import DES, UnknownDES
 
-des_read_registry: dict[tuple[str, int], DataclassRecord[DES]] = {}
-des_write_registry: dict[type[DES], DataclassRecord[DES]] = {}
+des_read_registry: dict[tuple[str, int], SegmentRecord[DES]] = {}
+des_write_registry: dict[type[DES], SegmentRecord[DES]] = {}
 
 
-def register_des[T: DES](desid: str, desver: int, spec: DataclassRecord[T]) -> None:
+def register_des[T: DES](desid: str, desver: int, spec: SegmentRecord[T]) -> None:
     """Register a specification for a DES."""
-    des_read_registry[desid, desver] = cast(DataclassRecord[DES], spec)
-    des_write_registry[spec.model_cls] = cast(DataclassRecord[DES], spec)
+    des_read_registry[desid, desver] = cast(SegmentRecord[DES], spec)
+    des_write_registry[spec.model_cls] = cast(SegmentRecord[DES], spec)
 
 
-def read_des(fd: BinaryIO, header_len: int, data_len: int) -> DES:
+def make_unknown_spec(header_len: int, data_len: int) -> SegmentRecord[UnknownDES]:
+    return SegmentRecord[UnknownDES](
+        UnknownDES,
+        subheader_specs=[
+            Constant(BcsString("DE", 2), "DE"),
+            BcsString("DESID", 25),
+            Int("DESVER", 2),
+            security_spec,
+            FixedBytes("DESSH", header_len - security_len - 29),
+        ],
+        data_specs=[
+            FixedBytes("DESDATA", data_len),
+        ],
+    )
+
+
+def read_des(fd: BinaryIO, header_len: int, data_len: int, ctx: ParseContext) -> DES:
 
     start_pos = fd.tell()
 
@@ -26,7 +51,7 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int) -> DES:
         msg = "Unexpected EOF while reading DES header."
         raise RuntimeError(msg)
 
-    fd.seek(-peek_len, SEEK_CUR)
+    fd.seek(start_pos)
 
     if first[:2].decode() != "DE":
         msg = "Expected DES, but first characters were not 'DE'"
@@ -37,14 +62,10 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int) -> DES:
 
     if (desid, desver) in des_read_registry:
         spec = des_read_registry[desid, desver]
-        des = spec.parse(fd, ParseContext())
+        des = spec.parse(fd, ctx)
     else:
-        des = UnknownDES(
-            DESID=desid,
-            DESVER=desver,
-            raw_header=fd.read(header_len),
-            raw_data=fd.read(data_len),
-        )
+        unknown_spec = make_unknown_spec(header_len, data_len)
+        des = unknown_spec.parse(fd, ctx)
 
     end_pos = fd.tell()
     net_bytes = end_pos - start_pos
@@ -58,17 +79,13 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int) -> DES:
     return des
 
 
-def des_to_fields(des: DES) -> list[Field]:
+def des_to_fields(des: DES, ctx: EmitContext) -> tuple[list[Field], list[Field]]:
 
-    # Without a spec, we can still round-trip correctly by inserting markers
-    # for the header DES sizes.
     if isinstance(des, UnknownDES):
-        return [
-            Field(name=f"DES START {des.DESID}", value=b""),
-            Field(name=f"DES {des.DESID} HEADER", value=des.raw_header),
-            Field(name="DES DATA START", value=b""),
-            Field(name=f"DES {des.DESID} DATA", value=des.raw_data),
-        ]
+        header_len = len(des.DESSH) + security_len + 29
+        data_len = len(des.DESDATA)
+        unknown_spec = make_unknown_spec(header_len, data_len)
+        return unknown_spec.emit_segment(des, ctx)
 
     des_type = type(des)
     if des_type not in des_write_registry:
@@ -77,4 +94,4 @@ def des_to_fields(des: DES) -> list[Field]:
         raise TypeError(msg)
 
     spec = des_write_registry[des_type]
-    return spec.to_fields(des, EmitContext(vars(des)))
+    return spec.emit_segment(des, ctx)

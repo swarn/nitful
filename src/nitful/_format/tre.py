@@ -21,7 +21,7 @@ def register_tre[T: TRE](tag: str, spec: DataclassRecord[T]) -> None:
     tre_write_registry[spec.model_cls] = cast(DataclassRecord[TRE], spec)
 
 
-def read_tre(fd: BinaryIO) -> TRE:
+def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
     start_pos = fd.tell()
 
     # length of CETAG and CEL fields.
@@ -42,7 +42,7 @@ def read_tre(fd: BinaryIO) -> TRE:
     if tag in tre_read_registry:
         fd.seek(-peek_len, SEEK_CUR)
         spec = tre_read_registry[tag]
-        parsed_tre = spec.parse(fd, ParseContext())
+        parsed_tre = spec.parse(fd, ctx)
     else:
         parsed_tre = UnknownTRE(CETAG=tag, raw_data=fd.read(cel))
 
@@ -58,7 +58,9 @@ def read_tre(fd: BinaryIO) -> TRE:
     return parsed_tre
 
 
-def read_tre_list(fd: BinaryIO, len_name: str, ofl_name: str) -> list[TRE]:
+def read_tre_list(
+    fd: BinaryIO, len_name: str, ofl_name: str, ctx: ParseContext
+) -> list[TRE]:
     tres: list[TRE] = []
     ctx = ParseContext()
     length = Int(len_name, 5).parse(fd, ctx)
@@ -70,15 +72,12 @@ def read_tre_list(fd: BinaryIO, len_name: str, ofl_name: str) -> list[TRE]:
 
         end_pos = fd.tell() + (length - 3)
         while fd.tell() < end_pos:
-            tres.append(read_tre(fd))
+            tres.append(read_tre(fd, ctx))
 
     return tres
 
 
-def tre_to_fields(tre: TRE) -> list[Field]:
-    """Serializes a TRE, dynamically computing its 5-byte length."""
-
-    ctx = EmitContext(vars(tre))
+def tre_to_fields(tre: TRE, ctx: EmitContext) -> list[Field]:
 
     if isinstance(tre, UnknownTRE):
         tag_field = BcsString("CETAG", 6).to_fields(tre.CETAG, ctx)
@@ -95,7 +94,9 @@ def tre_to_fields(tre: TRE) -> list[Field]:
     return spec.to_fields(tre, ctx)
 
 
-def tre_list_to_fields(tres: list[TRE], len_name: str, ofl_name: str) -> list[Field]:
+def tre_list_to_fields(
+    tres: list[TRE], len_name: str, ofl_name: str, ctx: EmitContext
+) -> list[Field]:
     ctx = EmitContext()
 
     if not tres:
@@ -103,7 +104,7 @@ def tre_list_to_fields(tres: list[TRE], len_name: str, ofl_name: str) -> list[Fi
 
     hd_fields: list[Field] = []
     for tre in tres:
-        hd_fields.extend(tre_to_fields(tre))
+        hd_fields.extend(tre_to_fields(tre, ctx))
 
     hd_len = Int(len_name, 5).to_fields(field_size(hd_fields) + 3, ctx)
     of_len = Int(ofl_name, 3).to_fields(0, ctx)
