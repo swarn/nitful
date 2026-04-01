@@ -47,6 +47,7 @@ ignore = [
     "PLC1901",  # explicit empty string checks are OK
     "FBT003",   # allow boolean positional arguments
     "ANN401",   # avoiding Any is difficult while parsing
+    "B905",     # allow zip without strict parameter
 ]
 
 [tool.ruff.lint.per-file-ignores]
