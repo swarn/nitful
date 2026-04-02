@@ -1,11 +1,11 @@
-from nitful._dsl.spec import DataclassRecord, EcsString, EcsStringEnum
+from nitful._dsl.rules import EcsString, EcsStringEnum, Struct
 from nitful.core import Security
 from nitful.core.common import SecurityClass
 
-security_spec = DataclassRecord(
+security_spec = Struct(
     name="security",
     model_cls=Security,
-    specs=[
+    rules=[
         EcsStringEnum("SCLAS", 1, enum=SecurityClass),
         EcsString("SCLSY", 2),
         EcsString("SCODE", 11),

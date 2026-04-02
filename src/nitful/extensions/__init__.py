@@ -1,6 +1,7 @@
 """SDE (TRE and DES) definitions."""
 
 from . import (
+    csattb,
     cscsdb,
     csephb,
     csexrb,
@@ -9,6 +10,7 @@ from . import (
 )
 
 __all__ = [
+    "csattb",
     "cscsdb",
     "csephb",
     "csexrb",

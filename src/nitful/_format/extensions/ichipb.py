@@ -1,16 +1,16 @@
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
     Constant,
-    DataclassRecord,
     Fixed,
     Int,
+    Struct,
 )
 from nitful._dsl.validator import NonNegative
 from nitful._format.tre import register_tre
 from nitful.extensions.ichipb import ICHIPB, AnamorphicCorrection, TransformFlag
 
-ichipb_spec = DataclassRecord(
+ichipb_spec = Struct(
     ICHIPB,
     [
         Constant(BcsString("CETAG", 6), "ICHIPB"),

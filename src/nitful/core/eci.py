@@ -38,3 +38,8 @@ class ECI:
     PN2_UT: float
     PN3_UT: float
     PN4_UT: float
+
+
+@dataclass
+class ECIv1:
+    """Earlier CS* DESs allowed ECI without parameters."""

@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from enum import IntEnum
 
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsFloat,
     BcsIntEnum,
     BcsString,
@@ -9,7 +9,6 @@ from nitful._dsl.spec import (
     Computed,
     Constant,
     Context,
-    DataclassRecord,
     Fixed,
     HMSeconds,
     Int,
@@ -19,12 +18,13 @@ from nitful._dsl.spec import (
     PrefixedArray,
     PrefixedList,
     ReservedExtensions,
-    SegmentRecord,
+    Segment,
     SizedBlock,
     SizedList,
+    Struct,
     Switch,
     Uuid,
-    VariantRecord,
+    Variant,
     Vector,
 )
 from nitful._dsl.validator import NonNegative, Positive, Range
@@ -75,10 +75,10 @@ def num_covar_elems(name: str) -> Callable[[Context], int]:
     return _covar_len
 
 
-direct_cover: VariantRecord[int, DirectCovariance] = VariantRecord(
-    tag_spec=Int("DC_TYPE", 1, Range(0, 9)),
+direct_cover: Variant[int, DirectCovariance] = Variant(
+    tag_rule=Int("DC_TYPE", 1, Range(0, 9)),
     cases={
-        0: DataclassRecord(
+        0: Struct(
             DirectCovariance0,
             [
                 PrefixedList(
@@ -97,7 +97,7 @@ direct_cover: VariantRecord[int, DirectCovariance] = VariantRecord(
 )
 
 
-csm_four_param = DataclassRecord(
+csm_four_param = Struct(
     CsmFourParam,
     [
         Fixed("FP_A", 8, Range(0.000001, 1.0), ndigits=6),
@@ -108,13 +108,13 @@ csm_four_param = DataclassRecord(
 )
 
 
-piecewise_linear = DataclassRecord(
+piecewise_linear = Struct(
     PiecewiseLinear,
     [
         PrefixedList(
             name="segments",
             count=Int("NUM_SEGS", 2, Range(2, 10)),
-            body=DataclassRecord(
+            body=Struct(
                 PlSegment,
                 [
                     Fixed("PL_MAX_COR", 8, Range(0.0, 1.0), ndigits=6),
@@ -131,7 +131,7 @@ piecewise_linear = DataclassRecord(
 )
 
 
-damped_cosine = DataclassRecord(
+damped_cosine = Struct(
     DampedCosine,
     [
         Fixed("DC_A", 8, Range(0.000001, 1.0), ndigits=6),
@@ -158,14 +158,14 @@ def get_spdcf_fam(ctx: Context) -> SpdcfFamily:
     return mapping[type(details)]
 
 
-spdcf = DataclassRecord(
+spdcf = Struct(
     Spdcf,
     [
         Int("SPDCF_ID", 2, Positive()),
         PrefixedList(
             name="constituents",
             count=Int("SPDCF_P", 2, Positive()),
-            body=DataclassRecord(
+            body=Struct(
                 ConstituentSpdcf,
                 [
                     Computed(
@@ -189,13 +189,13 @@ spdcf = DataclassRecord(
 )
 
 
-unmodeled_error = DataclassRecord(
+unmodeled_error = Struct(
     UnmodeledError,
     [
         PrefixedArray(
             name="covariances",
-            rows_spec=Int("LINE_DIMENSION", 3, Range(1, 999)),
-            cols_spec=Int("SAMPLE_DIMENSION", 2, Range(1, 99)),
+            rows_rule=Int("LINE_DIMENSION", 3, Range(1, 999)),
+            cols_rule=Int("SAMPLE_DIMENSION", 2, Range(1, 99)),
             body=Vector([
                 BcsFloat("URR", 21, edigits=2),
                 BcsFloat("URC", 21, edigits=2),
@@ -208,10 +208,10 @@ unmodeled_error = DataclassRecord(
 )
 
 
-ts_calibration: VariantRecord[int, TsCalibration] = VariantRecord(
-    tag_spec=Int("NUM_TS_GRP", 1, Range(1, 5)),
+ts_calibration: Variant[int, TsCalibration] = Variant(
+    tag_rule=Int("NUM_TS_GRP", 1, Range(1, 5)),
     cases={
-        1: DataclassRecord(
+        1: Struct(
             TsGroup1,
             [
                 IsoDate("CORR_REF_DATE_TS"),
@@ -222,7 +222,7 @@ ts_calibration: VariantRecord[int, TsCalibration] = VariantRecord(
                 Int("TS_SPDCF", 2, Positive()),
             ],
         ),
-        2: DataclassRecord(
+        2: Struct(
             TsGroup2,
             [
                 IsoDate("CORR_REF_DATE_TSP"),
@@ -235,7 +235,7 @@ ts_calibration: VariantRecord[int, TsCalibration] = VariantRecord(
                 Int("TS_ATT_SPDCF", 2, Positive()),
             ],
         ),
-        3: DataclassRecord(
+        3: Struct(
             TsGroup3,
             [
                 IsoDate("CORR_REF_DATE_TS"),
@@ -249,7 +249,7 @@ ts_calibration: VariantRecord[int, TsCalibration] = VariantRecord(
                 Int("TS_SPDCF", 2, Positive()),
             ],
         ),
-        4: DataclassRecord(
+        4: Struct(
             TsGroup4,
             [
                 IsoDate("CORR_REF_DATE_TSPA"),
@@ -264,7 +264,7 @@ ts_calibration: VariantRecord[int, TsCalibration] = VariantRecord(
                 Int("TS_FL_SPDCF", 2, Positive()),
             ],
         ),
-        5: DataclassRecord(
+        5: Struct(
             TsGroup5,
             [
                 IsoDate("CORR_REF_DATE_TSP"),
@@ -285,7 +285,7 @@ ts_calibration: VariantRecord[int, TsCalibration] = VariantRecord(
 )
 
 
-io_calibration = DataclassRecord(
+io_calibration = Struct(
     IoCalibration,
     [
         PrefixedList(
@@ -296,7 +296,7 @@ io_calibration = DataclassRecord(
         PrefixedList(
             name="groups",
             count=Int("NCAL_CPG", 2, Positive()),
-            body=DataclassRecord(
+            body=Struct(
                 IoCpg,
                 [
                     IsoDate("CORR_REF_DATE_IO"),
@@ -332,7 +332,7 @@ def post_covar_count(ctx: Context) -> int:
     return 1 if ctx["COMMON_POSTS_COV"] else ctx["NUM_POSTS"]
 
 
-post_sub = DataclassRecord(
+post_sub = Struct(
     PostSub,
     [
         IsoDate("POST_START_DATE"),
@@ -354,7 +354,7 @@ post_sub = DataclassRecord(
             condition=Bool("POST_PF_FLAG"),
             body=PrefixedList(
                 Int("NUM_POST_PF", 2, Positive()),
-                DataclassRecord(
+                Struct(
                     BasicPayloadSpdcf,
                     [
                         Int("POST_PF_SPDCF", 2, Positive()),
@@ -372,7 +372,7 @@ post_sub = DataclassRecord(
             condition=Bool("POST_PL_FLAG"),
             body=PrefixedList(
                 Int("NUM_POST_PL", 2, Positive()),
-                DataclassRecord(
+                Struct(
                     BasicPayloadSpdcf,
                     [
                         Int("POST_PL_SPDCF", 2, Positive()),
@@ -388,7 +388,7 @@ post_sub = DataclassRecord(
         Optional(
             name="sensor_spdcf",
             condition=Bool("POST_SR_FLAG"),
-            body=DataclassRecord(
+            body=Struct(
                 PostSensorSpdcf,
                 [
                     Int("POST_SR_SPDCF", 2, Positive()),
@@ -400,7 +400,7 @@ post_sub = DataclassRecord(
 )
 
 
-basic_sub = DataclassRecord(
+basic_sub = Struct(
     BasicSub,
     [
         SizedList(
@@ -413,7 +413,7 @@ basic_sub = DataclassRecord(
             condition=Bool("BASIC_PF_FLAG"),
             body=PrefixedList(
                 Int("NUM_BASIC_PF", 2, Positive()),
-                DataclassRecord(
+                Struct(
                     BasicPayloadSpdcf,
                     [
                         Int("BASIC_PF_SPDCF", 2, Positive()),
@@ -431,7 +431,7 @@ basic_sub = DataclassRecord(
             condition=Bool("BASIC_PL_FLAG"),
             body=PrefixedList(
                 Int("NUM_BASIC_PL", 2, Positive()),
-                DataclassRecord(
+                Struct(
                     BasicPayloadSpdcf,
                     [
                         Int("BASIC_PL_SPDCF", 2, Positive()),
@@ -453,7 +453,7 @@ basic_sub = DataclassRecord(
 )
 
 
-core_set = DataclassRecord(
+core_set = Struct(
     CoreSet,
     [
         BcsIntEnum("REF_FRAME_POSITION", 1, enum=ReferenceFrame),
@@ -461,7 +461,7 @@ core_set = DataclassRecord(
         PrefixedList(
             name="groups",
             count=Int("NUM_GROUPS", 1, Range(1, 7)),
-            body=DataclassRecord(
+            body=Struct(
                 CPGroup,
                 [
                     IsoDate("CORR_REF_DATE"),
@@ -488,9 +488,9 @@ core_set = DataclassRecord(
 )
 
 
-cscsdb = SegmentRecord(
+cscsdb = Segment(
     CSCSDB,
-    subheader_specs=[
+    subheader=[
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSCSDB"),
         Constant(Int("DESVER", 2), 1),
@@ -513,7 +513,7 @@ cscsdb = SegmentRecord(
             ],
         ),
     ],
-    data_specs=[
+    data=[
         IsoDate("COV_VERSION_DATE"),
         PrefixedList(
             name="core_sets",

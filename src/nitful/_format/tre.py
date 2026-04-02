@@ -1,24 +1,24 @@
 from os import SEEK_CUR
 from typing import BinaryIO, cast
 
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsString,
-    DataclassRecord,
     EmitContext,
-    Field,
     Int,
+    Item,
     ParseContext,
-    field_size,
+    Struct,
+    item_size,
 )
 from nitful.core.common import TRE, UnknownTRE
 
-tre_read_registry: dict[str, DataclassRecord[TRE]] = {}
-tre_write_registry: dict[type[TRE], DataclassRecord[TRE]] = {}
+tre_read_registry: dict[str, Struct[TRE]] = {}
+tre_write_registry: dict[type[TRE], Struct[TRE]] = {}
 
 
-def register_tre[T: TRE](tag: str, spec: DataclassRecord[T]) -> None:
-    tre_read_registry[tag] = cast(DataclassRecord[TRE], spec)
-    tre_write_registry[spec.model_cls] = cast(DataclassRecord[TRE], spec)
+def register_tre[T: TRE](tag: str, spec: Struct[T]) -> None:
+    tre_read_registry[tag] = cast(Struct[TRE], spec)
+    tre_write_registry[spec.model_cls] = cast(Struct[TRE], spec)
 
 
 def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
@@ -77,12 +77,12 @@ def read_tre_list(
     return tres
 
 
-def tre_to_fields(tre: TRE, ctx: EmitContext) -> list[Field]:
+def tre_to_fields(tre: TRE, ctx: EmitContext) -> list[Item]:
 
     if isinstance(tre, UnknownTRE):
         tag_field = BcsString("CETAG", 6).to_fields(tre.CETAG, ctx)
         len_field = Int("CEL", 5).to_fields(len(tre.raw_data), ctx)
-        data_field = Field(name="CEDATA", value=tre.raw_data)
+        data_field = Item(name="CEDATA", value=tre.raw_data)
         return [*tag_field, *len_field, data_field]
 
     tre_type = type(tre)
@@ -96,17 +96,17 @@ def tre_to_fields(tre: TRE, ctx: EmitContext) -> list[Field]:
 
 def tre_list_to_fields(
     tres: list[TRE], len_name: str, ofl_name: str, ctx: EmitContext
-) -> list[Field]:
+) -> list[Item]:
     ctx = EmitContext()
 
     if not tres:
         return Int(len_name, 5).to_fields(0, ctx)
 
-    hd_fields: list[Field] = []
+    hd_fields: list[Item] = []
     for tre in tres:
         hd_fields.extend(tre_to_fields(tre, ctx))
 
-    hd_len = Int(len_name, 5).to_fields(field_size(hd_fields) + 3, ctx)
+    hd_len = Int(len_name, 5).to_fields(item_size(hd_fields) + 3, ctx)
     of_len = Int(ofl_name, 3).to_fields(0, ctx)
 
     return [*hd_len, *of_len, *hd_fields]

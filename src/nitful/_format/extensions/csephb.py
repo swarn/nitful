@@ -15,35 +15,36 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import BinaryIO, ClassVar, override
 
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
     Bool,
+    Combinator,
     Constant,
-    DataclassRecord,
     EmitContext,
-    Field,
     Fixed,
     HMSeconds,
     Int,
     IsoDate,
+    Item,
     Override,
     ParseContext,
     PrefixedList,
     ReservedExtensions,
-    RuleSpec,
-    SegmentRecord,
+    Rule,
+    Segment,
     SizedBlock,
-    Spec,
+    Struct,
+    Switch,
     Uuid,
-    VariantRecord,
+    Variant,
     Vector,
 )
 from nitful._dsl.validator import Literals, NonNegative, Positive, Range
 from nitful._format.des import register_des
 from nitful._format.eci import eci_spec
 from nitful._format.security import security_spec
-from nitful.core.eci import ECI
+from nitful.core.eci import ECI, ECIv1
 from nitful.extensions.csephb import (
     CSEPHB,
     ECF,
@@ -59,20 +60,20 @@ type Array2D = list[list[float]]
 
 
 @dataclass
-class RFA1(RuleSpec[Kinematics]):
+class RFA1(Combinator[Kinematics]):
     """Handle the interleaved velocity/acceleration loop of CSEPHB RFA 1."""
 
     name: str = field(default="RFA1", init=False)
 
-    b_spec: ClassVar[Spec[bool]] = Bool("ACCEL_PROVIDED", true=b"Y", false=b"N")
+    b_spec: ClassVar[Rule[bool]] = Bool("ACCEL_PROVIDED", true=b"Y", false=b"N")
 
-    v_spec: ClassVar[Spec[list[float]]] = Vector([
+    v_spec: ClassVar[Rule[list[float]]] = Vector([
         Fixed("VEL_X", 12, ndigits=2, sign=True),
         Fixed("VEL_Y", 12, ndigits=2, sign=True),
         Fixed("VEL_Z", 12, ndigits=2, sign=True),
     ])
 
-    a_spec: ClassVar[Spec[list[float]]] = Vector([
+    a_spec: ClassVar[Rule[list[float]]] = Vector([
         Fixed("ACCEL_X", 12, ndigits=2, sign=True),
         Fixed("ACCEL_Y", 12, ndigits=2, sign=True),
         Fixed("ACCEL_Z", 12, ndigits=2, sign=True),
@@ -94,7 +95,7 @@ class RFA1(RuleSpec[Kinematics]):
         return Kinematics(velocities, accelerations if accel_provided else None)
 
     @override
-    def _emit(self, value: Kinematics, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: Kinematics, *, ctx: EmitContext) -> list[Item]:
         accel_provided = value.accelerations is not None
         fields = self.b_spec.to_fields(accel_provided, ctx)
 
@@ -117,9 +118,9 @@ class InterpolationType(IntEnum):
     LAGRANGIAN = 2
 
 
-csephb = SegmentRecord(
+csephb = Segment(
     CSEPHB,
-    subheader_specs=[
+    subheader=[
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSEPHB"),
         Constant(Int("DESVER", 2), 2),
@@ -142,26 +143,32 @@ csephb = SegmentRecord(
             ],
         ),
     ],
-    data_specs=[
+    data=[
         BcsIntEnum("QUAL_FLAG_EPH", 1, enum=Quality),
-        VariantRecord(
+        Variant(
             name="interpolation",
-            tag_spec=BcsIntEnum("INTERP_TYPE_EPH", 1, enum=InterpolationType),
+            tag_rule=BcsIntEnum("INTERP_TYPE_EPH", 1, enum=InterpolationType),
             cases={
-                InterpolationType.NEAREST: DataclassRecord(NearestNeighbor, []),
-                InterpolationType.LINEAR: DataclassRecord(Linear, []),
-                InterpolationType.LAGRANGIAN: DataclassRecord(
+                InterpolationType.NEAREST: Struct(NearestNeighbor, []),
+                InterpolationType.LINEAR: Struct(Linear, []),
+                InterpolationType.LAGRANGIAN: Struct(
                     Lagrangian, [Int("INTERP_ORDER_EPH", 1, Literals([3, 5, 7]))]
                 ),
             },
         ),
         BcsIntEnum("EPHEM_FLAG", 1, enum=EphemerisSource),
-        VariantRecord(
+        Variant(
             name="frame",
-            tag_spec=BcsIntEnum("ECI_ECF_EPHEM", 1, enum=Frame),
+            tag_rule=BcsIntEnum("ECI_ECF_EPHEM", 1, enum=Frame),
             cases={
-                Frame.ECI: DataclassRecord(ECI, eci_spec),
-                Frame.ECF: DataclassRecord(ECF, []),
+                Frame.ECF: Struct(ECF, []),
+                Frame.ECI: Switch(
+                    get_tag=lambda ctx: ctx["DESVER"],
+                    cases={
+                        1: Struct(ECIv1, []),
+                        2: Struct(ECI, eci_spec),
+                    },
+                ),
             },
         ),
         Fixed("DT_EPHEM", 13, Range(1e-9, 1000 - 1e-9), ndigits=9),
@@ -187,4 +194,5 @@ csephb = SegmentRecord(
 )
 
 
+register_des("CSEPHB", 1, csephb)
 register_des("CSEPHB", 2, csephb)

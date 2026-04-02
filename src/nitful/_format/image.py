@@ -5,21 +5,22 @@ from io import SEEK_CUR
 from pathlib import Path
 from typing import Any, BinaryIO, ClassVar, override
 
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
     BcsStringEnum,
     BinaryInt,
+    Combinator,
     Constant,
-    DataclassRecord,
-    DictRecord,
     EcsString,
     EmitContext,
-    Field,
+    Group,
     Int,
+    Item,
     ParseContext,
     PrefixedList,
-    Spec,
+    Rule,
+    Struct,
 )
 from nitful._dsl.validator import Literals, NonNegative, Positive, Range
 from nitful.core.common import EncryptionLevel
@@ -38,9 +39,7 @@ from .tre import read_tre_list, tre_list_to_fields
 
 
 @dataclass
-class NumBands(Spec[int]):
-
-    name: str = ""
+class NumBands(Combinator[int]):
 
     MAX_NBANDS: ClassVar[int] = 9
 
@@ -52,7 +51,7 @@ class NumBands(Spec[int]):
         return nbands
 
     @override
-    def _emit(self, value: int, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: int, *, ctx: EmitContext) -> list[Item]:
         if value <= self.MAX_NBANDS:
             return Int("NBANDS", 1).to_fields(value, ctx)
 
@@ -62,7 +61,7 @@ class NumBands(Spec[int]):
 
 
 @dataclass
-class CompressionSpec(Spec[Compression]):
+class CompressionSpec(Combinator[Compression]):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> Compression:
@@ -75,7 +74,7 @@ class CompressionSpec(Spec[Compression]):
         return Compression(**kwargs)
 
     @override
-    def _emit(self, value: Compression, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: Compression, *, ctx: EmitContext) -> list[Item]:
         out_fields = BcsString("IC", 2).to_fields(value.IC, ctx)
 
         if value.IC not in {"NC", "NM"}:
@@ -85,7 +84,7 @@ class CompressionSpec(Spec[Compression]):
 
 
 @dataclass
-class IcordsSpec(Spec[Coords | None]):
+class IcordsSpec(Combinator[Coords | None]):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> Coords | None:
@@ -100,7 +99,7 @@ class IcordsSpec(Spec[Coords | None]):
         return Coords(*args)
 
     @override
-    def _emit(self, value: Coords | None, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: Coords | None, *, ctx: EmitContext) -> list[Item]:
         if value is None:
             return BcsString("ICORDS", 1).to_fields(" ", ctx)
 
@@ -115,13 +114,11 @@ class IcordsSpec(Spec[Coords | None]):
             ]
         )
 
-        return [*icords_fields, Field("IGEOLO", igeolo_bytes)]
+        return [*icords_fields, Item("IGEOLO", igeolo_bytes)]
 
 
 @dataclass
-class LutsSpec(Spec[list[list[int]]]):
-
-    name: str
+class LutsSpec(Combinator[list[list[int]]]):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[list[int]]:
@@ -135,7 +132,7 @@ class LutsSpec(Spec[list[list[int]]]):
         return [[lut_spec.parse(fd, ctx) for _ in range(nelut)] for _ in range(nluts)]
 
     @override
-    def _emit(self, value: list[list[int]], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: list[list[int]], *, ctx: EmitContext) -> list[Item]:
         nluts = len(value)
         out = Int("NLUTS", 1).to_fields(nluts, ctx)
 
@@ -155,7 +152,7 @@ class LutsSpec(Spec[list[list[int]]]):
         return out
 
 
-image_head_spec: list[Spec[Any]] = [
+image_head_spec: list[Rule[Any]] = [
     Constant(BcsString("IM", 2), "IM"),
     BcsString("IID1", 10),
     BcsString("IDATIM", 14),
@@ -171,24 +168,24 @@ image_head_spec: list[Spec[Any]] = [
     BcsString("ICAT", 8),
     Int("ABPP", 2),
     BcsStringEnum("PJUST", 1, enum=PixelJustification),
-    IcordsSpec("location"),
+    IcordsSpec(name="location"),
     PrefixedList(
         name="comments",
         count=Int("NICOM", 1, NonNegative()),
         body=EcsString("ICOM", 80),
     ),
-    CompressionSpec("compression"),
+    CompressionSpec(name="compression"),
     PrefixedList(
         name="bands",
         count=NumBands(),
-        body=DataclassRecord(
+        body=Struct(
             BandInfo,
             [
                 BcsString("IREPBAND", 2),
                 BcsString("ISUBCAT", 6),
                 BcsString("IFC", 1),
                 BcsString("IMFLT", 3),
-                LutsSpec("luts"),
+                LutsSpec(name="luts"),
             ],
         ),
     ),
@@ -212,7 +209,7 @@ def read_image_segment(
 ) -> ImageSegment:
     start_pos = fd.tell()
 
-    header = DictRecord(image_head_spec).parse(fd, ParseContext())
+    header = Group(image_head_spec).parse(fd, ParseContext())
 
     udid = read_tre_list(fd, "UDIDL", "UDOFL", ctx)
     ixshd = read_tre_list(fd, "IXSHDL", "IXSOFL", ctx)
@@ -239,9 +236,9 @@ def read_image_segment(
 
 def image_to_fields(
     image: ImageSegment, ctx: EmitContext
-) -> tuple[list[Field], list[Field]]:
+) -> tuple[list[Item], list[Item]]:
     ctx = EmitContext(vars(image))
-    out_fields = DictRecord(image_head_spec).to_fields(vars(image), ctx)
+    out_fields = Group(image_head_spec).to_fields(vars(image), ctx)
 
     udid_fields = tre_list_to_fields(image.UDID, "UDIDL", "UDOFL", ctx)
     out_fields.extend(udid_fields)
@@ -249,8 +246,8 @@ def image_to_fields(
     ixshd_fields = tre_list_to_fields(image.IXSHD, "IXSHDL", "IXSOFL", ctx)
     out_fields.extend(ixshd_fields)
 
-    out_fields.append(Field(name="IMAGE DATA START", value=b""))
+    out_fields.append(Item(name="IMAGE DATA START", value=b""))
 
-    data_field = Field(name="IMAGE DATA", value=image.data)
+    data_field = Item(name="IMAGE DATA", value=image.data)
 
     return out_fields, [data_field]

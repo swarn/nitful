@@ -1,10 +1,10 @@
 from collections.abc import Iterable
 from typing import BinaryIO, cast
 
-from .spec import Field
+from .rules import Item
 
 
-def write_fields(fields: Iterable[Field], out_fd: BinaryIO) -> None:
+def write_fields(fields: Iterable[Item], out_fd: BinaryIO) -> None:
     """Write fields to a binary stream."""
     for field in fields:
         if isinstance(field.value, bytes):
@@ -17,7 +17,7 @@ WIDTH = 60
 
 
 def dump_fields(
-    fields: Iterable[Field],
+    fields: Iterable[Item],
     *,
     header: bool = False,
     image_nums: list[int] | None = None,

@@ -6,32 +6,31 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import BinaryIO, override
 
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
     BcsStringEnum,
     BinaryInt,
     Blankable,
     Bool,
+    Combinator,
     ConcatDatetime,
     Conditional,
     Constant,
-    DataclassRecord,
     EmitContext,
-    Field,
     Fixed,
     Int,
     IsoDate,
+    Item,
     Nothing,
     ParseContext,
     PrefixedList,
     ReservedExtensions,
-    RuleSpec,
     SizedBlock,
-    Spec,
+    Struct,
     Switch,
     Uuid,
-    VariantRecord,
+    Variant,
     VarString,
 )
 from nitful._dsl.validator import Literals, NonNegative, Positive, Range
@@ -55,7 +54,7 @@ from nitful.extensions.csexrb import (
 
 
 @dataclass
-class TimeDeltas(Spec[list[int]]):
+class TimeDeltas(Combinator[list[int]]):
     """Handle the variable-size time deltas."""
 
     @override
@@ -65,7 +64,7 @@ class TimeDeltas(Spec[list[int]]):
         return [BinaryInt("DT", dt_size).parse(fd, ctx) for _ in range(num_dt)]
 
     @override
-    def _emit(self, value: list[int], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: list[int], *, ctx: EmitContext) -> list[Item]:
         dt_size = ctx["DT_SIZE"]
 
         fields = BinaryInt("NUMBER_DT", 4).to_fields(len(value), ctx)
@@ -77,7 +76,7 @@ class TimeDeltas(Spec[list[int]]):
 
 
 @dataclass
-class ExposureIndices(RuleSpec[list[int]]):
+class ExposureIndices(Combinator[list[int]]):
     """Handle the highly variable exposure indices."""
 
     @override
@@ -104,7 +103,7 @@ class ExposureIndices(RuleSpec[list[int]]):
         return indices
 
     @override
-    def _emit(self, value: list[int], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: list[int], *, ctx: EmitContext) -> list[Item]:
         num_exp = len(value)
         fields = Int("NUM_EXP", 2).to_fields(num_exp, ctx)
 
@@ -135,7 +134,7 @@ class ExposureIndices(RuleSpec[list[int]]):
         return fields
 
 
-imaging_operation = DataclassRecord(
+imaging_operation = Struct(
     ImagingOperation,
     [
         VarString(Int("CM_ID_LEN", 2, Range(0, 99)), name="CM_ID"),
@@ -144,7 +143,7 @@ imaging_operation = DataclassRecord(
         ExposureIndices(name="indices"),
         PrefixedList(
             Int("NUM_QUALITY_METRICS", 2, Range(0, 99)),
-            DataclassRecord(
+            Struct(
                 QualityMetric,
                 [
                     VarString(
@@ -168,7 +167,7 @@ imaging_operation = DataclassRecord(
     name="imaging_operations",
 )
 
-collection_criteria = DataclassRecord(
+collection_criteria = Struct(
     CollectionCriteria,
     [
         VarString(
@@ -186,7 +185,7 @@ collection_criteria = DataclassRecord(
     ],
 )
 
-rfa = DataclassRecord(
+rfa = Struct(
     TargetAndCollectionData,
     [
         Int("NUM_IMG_OPS", 2, Positive()),
@@ -215,7 +214,7 @@ rfa = DataclassRecord(
 )
 
 
-scanner_timing = DataclassRecord(
+scanner_timing = Struct(
     ScannerTiming,
     [
         IsoDate("DAY_FIRST_LINE_IMAGE"),
@@ -236,14 +235,14 @@ class TimeStampLoc(IntEnum):
     MTIMSA = 1
 
 
-framer_timing = DataclassRecord(
+framer_timing = Struct(
     FramerTiming,
     [
-        VariantRecord(
+        Variant(
             BcsIntEnum("TIME_STAMP_LOC", 1, enum=TimeStampLoc),
             {
-                TimeStampLoc.MTIMSA: DataclassRecord(MtimsaTiming, []),
-                TimeStampLoc.CSEXRB: DataclassRecord(
+                TimeStampLoc.MTIMSA: Struct(MtimsaTiming, []),
+                TimeStampLoc.CSEXRB: Struct(
                     DesFramerTiming,
                     [
                         Blankable(Int("REFERENCE_FRAME_NUM", 9, Positive())),
@@ -252,7 +251,7 @@ framer_timing = DataclassRecord(
                         BinaryInt("DT_SIZE", 1, Positive()),
                         BinaryInt("NUMBER_FRAMES", 4, Positive()),
                         BinaryInt("NUMBER_DT", 4, NonNegative()),
-                        TimeDeltas("time_deltas"),
+                        TimeDeltas(name="time_deltas"),
                     ],
                 ),
             },
@@ -260,12 +259,12 @@ framer_timing = DataclassRecord(
     ],
 )
 
-csexrb = DataclassRecord(
+csexrb = Struct(
     CSEXRB,
     [
         Constant(BcsString("CETAG", 6), "CSEXRB"),
         SizedBlock(
-            length_spec=Int("CEL", 5),
+            length_rule=Int("CEL", 5),
             body=[
                 Uuid("IMAGE_UUID"),
                 PrefixedList(

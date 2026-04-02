@@ -2,6 +2,10 @@
 
 ## Overview
 
+The classes in this modules comprise a domain-specific language (DSL) which
+enables bidirectional conversion from NITF's flat structure to richer Python
+types.
+
 The NITF format is a flat list of values. The values are fixed-width, the
 structure of the NITF file is implicit in the values, the structure is defined
 in the NITF spec, and varies wildly.
@@ -10,64 +14,62 @@ One level of abstraction up, we can think of NITF files as a flat list of
 key/value pairs ("fields") where the keys are implicit: they are defined in the
 specs, but not present in the file.
 
-In Python, we want to use composite data structures, such as vector or record
-types, where it makes sense. But, we also want our Python ADTs and our
-specifications to have different structures from each other, and of course from
-the flat NITF format.
-
-The classes in this modules comprise a domain-specific language (DSL) which
-enables bidirectional conversion from NITF's flat structure to richer Python
-types.
+In Python, we use types like lists or dataclases where it makes sense. We want
+both those types and the DSL to have useful structure that can differ from one
+another, and of course from the flat NITF format.
 
 
 ## The AST
 
-The `Spec` classes are nodes in an abstract syntax tree, where `FieldSpec`
-instances are leaves of the tree and `RuleSpec` instances are internal nodes.
-The root of the tree will typically be a `DataclassRecord` or a `DictRecord`,
-which gather the tree into a dataclass or dict, respectively.
+The `Rule` classes are nodes in an abstract syntax tree, where `Field`
+instances are leaves of the tree and `Combinator` instances are internal nodes.
+The root of the tree will typically be a `Struct` or a `Group`, which gather
+the tree into a dataclass or dict, respectively.
 
 
 ## The Context Stack (`push_scope` / `pop_scope`)
 
 NITF files can have complex logic and fields whose existence or interpretation
-depends on earlier fields. To support this, the AST evaluation during parsing
-or generation is not "pure;" it passes a shared `Context` between nodes. The
-`Context` acts as a stacked symbol table:
+depends on earlier fields. To support this, the AST evaluation passes a shared
+`Context` between nodes. The `Context` acts as a stacked symbol table:
 
-- Flat Evaluation: By default, child specs read and write to the same scope as
+- Flat Evaluation: By default, child rules read and write to the same scope as
   their parents.
 
-- Nested Evaluation: Complex record types, `DictRecord` or `DataclassRecord`,
-  call `push_scope()` before evaluating their children to isolate the
-  children's variables. Once finished, they package those variables as a dict
-  or Dataclass value, call `pop_scope()` to clear the child variables, then
-  return the value.
+- Nested Evaluation: Complex record types, `Struct` or `Group`, call
+  `push_scope()` before evaluating their children to isolate the children's
+  variables. Once finished, they package those variables as a dict or Dataclass
+  value, call `pop_scope()` to clear the child variables, then return the
+  value.
 
 - Hiearchical lookup: as you would expect, if a symbol isn't present in the
   current scope, the lookup will proceed to the containing scope, etc.
 
+In addition to the symbol table, the Context bundles various other impure
+side-effects during evaluation: it tracks byte offset during parsing and
+serialization, as well as history of reads/writes used for error reporting.
+
 
 ## Names and structure (`name`)
 
-Every `Spec` has a `name` field. The name dictates *binding*, determining the
-routing between Python objects, DSL nodes, and NITF fields. Anonymous specs
-(with empty names) behave differently than named specs.
+Every `Rule` has a `name` field. The name dictates *binding*, determining the
+routing between Python objects, DSL nodes, and NITF fields. Anonymous rules
+(with empty names) behave differently than named rules.
 
-### Named Specs (`name != ""`)
+### Named Rules (`name != ""`)
 
-- Parsing: The spec reads binary data, converts it to a Python value, injects
+- Parsing: The rule reads binary data, converts it to a Python value, injects
   the value into the current scope, AND returns it.
 
 - Emitting: The parent node uses the child's name to extract specific data from
   the Python object (via a dictionary key or dataclass attribute) to pass down
   to the child for serialization:
 
-        child_val = parent_dict.get(child_spec.name)
+        child_val = parent_dict.get(child_rule.name)
 
-### Anonymous Specs (`name == ""`)
+### Anonymous Rules (`name == ""`)
 
-- Parsing: The spec reads binary data and returns the Python value, but does
+- Parsing: The rule reads binary data and returns the Python value, but does
   NOT save it to the context. The value is still returned, where it can be,
   e.g., gathered by the parent node into a list.
 
@@ -110,16 +112,16 @@ from .validator import Validator
 
 
 @dataclass
-class Field:
+class Item:
     """A name and serializable value for a NITF field."""
 
     name: str
     value: bytes | StreamablePayload
 
 
-def field_size(fields: list[Field]) -> int:
-    """Get the serialized size of a list of Fields."""
-    return sum(len(f.value) for f in fields)
+def item_size(items: list[Item]) -> int:
+    """Get the total size of the binary data in a list of Items."""
+    return sum(len(item.value) for item in items)
 
 
 class StreamablePayload(Protocol):
@@ -135,10 +137,9 @@ class StreamablePayload(Protocol):
 
 
 class Context:
-    """A scoped evaluation context.
+    """A context maintained during parsing or serialization.
 
-    This functions like a symbol table. Most fields just add their own value to
-    the context, but some, e.g., use previous values to modify behavior.
+    See the description in the module docstring for more info.
     """
 
     is_parsing: ClassVar[bool] = False
@@ -185,7 +186,7 @@ class Context:
         """Iterate over a sequence while tracking the index for error paths.
 
         Using this instead of a standard loop allows the context to track
-        repeated child specs, so that `ctx.subscripts` can accurately show
+        repeated child rules, so that `ctx.subscripts` can accurately show
         indices like `[0][2]` during exceptions.
         """
         self._indices.append(0)
@@ -233,7 +234,7 @@ class EmitContext(Context):
     """Context while serializing Python objects into binary fields.
 
     State is populated preemptively. Structural nodes push the attributes of
-    the Python object into the context *before* evaluating their child specs.
+    the Python object into the context *before* evaluating their child rules.
     """
 
     is_emitting: ClassVar[bool] = True
@@ -243,14 +244,35 @@ class EmitContext(Context):
         self.current_offset: int = 0
 
 
-@dataclass
-class Spec[T](ABC):
-    """A specification for NITF data.
+class Rule[T](Protocol):
+    """A rule for encoding and decoding NITF data.
 
     Instances of this class describe how to read binary data into Python
-    objects, and how to serialize Python objects back into binary `Field`
-    objects. They generate `Field` objects rather than writing binary output
-    because it's useful to manipulate the fields before output.
+    objects, and how to serialize Python objects back into binary `Item`
+    objects. They generate `Item` objects rather than writing binary output
+    because it's useful to manipulate/examine the fields before output.
+    """
+
+    name: str
+
+    def parse(self, fd: BinaryIO, ctx: ParseContext) -> T: ...
+    def to_fields(self, value: T, ctx: EmitContext) -> list[Item]: ...
+
+
+class MatchableRule[T](Rule[T], Protocol):
+    """A Rule that defines a `matches` method, so you can ask it about type.
+
+    Currently only used by `Variant`, which routes on _type_ rather than on
+    _name_; this protocol verifies the existence of the `matches` method used
+    to effect that.
+    """
+
+    def matches(self, value: Any) -> TypeGuard[T]: ...
+
+
+@dataclass
+class BaseRule[T](ABC):
+    """Default behavior for Rule classes.
 
     Child classes only need to define:
 
@@ -286,7 +308,7 @@ class Spec[T](ABC):
             return val
 
     @final
-    def to_fields(self, value: T, ctx: EmitContext) -> list[Field]:
+    def to_fields(self, value: T, ctx: EmitContext) -> list[Item]:
         trace_name = self.display_name() + ctx.subscripts
 
         try:
@@ -309,14 +331,14 @@ class Spec[T](ABC):
 
         # Decorate the name with the wrapped spec or implemented class. This
         # relies on the convention of using common names for these values.
-        spec = getattr(self, "spec", None)
+        rule = getattr(self, "rule", None)
         body = getattr(self, "body", None)
         mcls = getattr(self, "model_cls", None)
         mname = f"({mcls.__name__})" if mcls else ""
-        sname = f"({spec.name})" if spec and hasattr(spec, "name") and spec.name else ""
+        sname = f"({rule.name})" if rule and hasattr(rule, "name") and rule.name else ""
         bname = f"({body.name})" if body and hasattr(body, "name") and body.name else ""
 
-        # Prefix with the assigned name, if this spec isn't anonymous.
+        # Prefix with the assigned name, if this rule isn't anonymous.
         aname = f"{self.name}:" if self.name else ""
 
         return f"{aname}{cname}{mname}{sname}{bname}"
@@ -325,12 +347,12 @@ class Spec[T](ABC):
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T: ...
 
     @abstractmethod
-    def _emit(self, value: T, *, ctx: EmitContext) -> list[Field]: ...
+    def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]: ...
 
 
 @dataclass
-class FieldSpec[T](Spec[T], ABC):
-    """A specification for a single NITF field.
+class Field[T](BaseRule[T], ABC):
+    """A description of a single NITF field.
 
     These are the "leaves" of our syntax tree: they are responsible for actual
     reading and writing of binary data. They are usually a single scalar data
@@ -354,7 +376,7 @@ class FieldSpec[T](Spec[T], ABC):
         return val
 
     @override
-    def _emit(self, value: T, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]:
         if self.validate and not self.validate(value):
             msg = f"Invalid value {value} for '{self.name}'"
             raise RuntimeError(msg)
@@ -371,7 +393,7 @@ class FieldSpec[T](Spec[T], ABC):
         ctx.current_offset += self.size
 
         full_name = self.name + ctx.subscripts
-        return [Field(full_name, encoded)]
+        return [Item(full_name, encoded)]
 
     @abstractmethod
     def encode(self, decoded: T) -> bytes:
@@ -383,19 +405,19 @@ class FieldSpec[T](Spec[T], ABC):
 
 
 @dataclass
-class RuleSpec[T](Spec[T], ABC):
-    """A specification for one or more NITF fields.
+class Combinator[T](BaseRule[T], ABC):
+    """A rule for one or more NITF fields.
 
-    These are the "branches" of our syntax tree. They structure the FieldSpec
-    nodes. RuleSpec nodes are anonymous by default; see the description in the
-    module docstring above.
+    These are the "branches" of our syntax tree. They structure the `Field`
+    nodes. `Combinator` nodes are anonymous by default; see the description in
+    the module docstring above.
     """
 
     name: str = field(default="", kw_only=True)
 
 
 @dataclass
-class Nothing(FieldSpec[None]):
+class Nothing(Field[None]):
 
     name: str = ""
     size: int = 0
@@ -408,10 +430,13 @@ class Nothing(FieldSpec[None]):
     def decode(self, encoded: bytes) -> None:
         return None
 
+    def matches(self, value: object) -> TypeGuard[None]:
+        return value is None
+
 
 @dataclass
-class Marker(FieldSpec[None]):
-    """A no-op added to the spec for later processing."""
+class Marker(Field[None]):
+    """An empty value added to output for later processing."""
 
     size: int = 0
 
@@ -425,7 +450,7 @@ class Marker(FieldSpec[None]):
 
 
 @dataclass
-class Bool(FieldSpec[bool]):
+class Bool(Field[bool]):
 
     _: KW_ONLY
 
@@ -451,7 +476,7 @@ class Bool(FieldSpec[bool]):
 
 
 @dataclass
-class Int(FieldSpec[int]):
+class Int(Field[int]):
 
     # Always show the sign, positive or negative.
     sign: bool = False
@@ -467,7 +492,7 @@ class Int(FieldSpec[int]):
 
 
 @dataclass
-class BcsString(FieldSpec[str]):
+class BcsString(Field[str]):
     """A string with the BCS character set."""
 
     @override
@@ -480,7 +505,7 @@ class BcsString(FieldSpec[str]):
 
 
 @dataclass
-class EcsString(FieldSpec[str]):
+class EcsString(Field[str]):
     """A string with the ECS character set."""
 
     @override
@@ -493,7 +518,7 @@ class EcsString(FieldSpec[str]):
 
 
 @dataclass
-class FixedBytes(FieldSpec[bytes]):
+class FixedBytes(Field[bytes]):
     """A fixed number of bytes."""
 
     @override
@@ -506,7 +531,7 @@ class FixedBytes(FieldSpec[bytes]):
 
 
 @dataclass
-class BcsIntEnum[T: IntEnum](FieldSpec[T]):
+class BcsIntEnum[T: IntEnum](Field[T]):
     """An integer enumeration in the NITF spec.
 
     The `enum` argument is a Python `IntEnum` that defines the valid integers
@@ -527,7 +552,7 @@ class BcsIntEnum[T: IntEnum](FieldSpec[T]):
 
 
 @dataclass
-class EcsStringEnum[T: StrEnum](FieldSpec[T]):
+class EcsStringEnum[T: StrEnum](Field[T]):
     """A string enumeration with ECS characters in the NITF spec.
 
     The `enum` argument is a Python `StrEnum` that defines the valid strings
@@ -548,7 +573,7 @@ class EcsStringEnum[T: StrEnum](FieldSpec[T]):
 
 
 @dataclass
-class BcsStringEnum[T: StrEnum](FieldSpec[T]):
+class BcsStringEnum[T: StrEnum](Field[T]):
     """A string enumeration with BCS characters in the NITF spec.
 
     The `enum` argument is a Python `StrEnum` that defines the valid strings
@@ -569,7 +594,7 @@ class BcsStringEnum[T: StrEnum](FieldSpec[T]):
 
 
 @dataclass
-class Fixed(FieldSpec[float]):
+class Fixed(Field[float]):
     """A fixed-point number: 'nn.ddddd'."""
 
     _: KW_ONLY
@@ -592,7 +617,7 @@ class Fixed(FieldSpec[float]):
 
 
 @dataclass
-class FixedDecimal(FieldSpec[Decimal]):
+class FixedDecimal(Field[Decimal]):
     """A fixed-point number return as a Decimal to maintain precision."""
 
     _: KW_ONLY
@@ -615,7 +640,7 @@ class FixedDecimal(FieldSpec[Decimal]):
 
 
 @dataclass
-class BcsFloat(FieldSpec[float]):
+class BcsFloat(Field[float]):
     """A floating-point number in scientific notation: ±i.nnnnnnE±ee
 
     Where the number of digits after the decimal point (n) is derived from the
@@ -669,7 +694,7 @@ class BcsFloat(FieldSpec[float]):
 
 
 @dataclass
-class HexColor(FieldSpec[tuple[int, int, int]]):
+class HexColor(Field[tuple[int, int, int]]):
 
     size: int = field(default=3, init=False)
 
@@ -686,7 +711,7 @@ class HexColor(FieldSpec[tuple[int, int, int]]):
 
 
 @dataclass
-class IsoDate(FieldSpec[date]):
+class IsoDate(Field[date]):
     """A date formatted CCYYMMDD"""
 
     size: int = field(default=8, init=False)
@@ -702,7 +727,7 @@ class IsoDate(FieldSpec[date]):
 
 
 @dataclass
-class HMSeconds(FieldSpec[float]):
+class HMSeconds(Field[float]):
     """Seconds formatted hhmmss.nnnnnnnnn
 
     NOTE:
@@ -732,7 +757,7 @@ class HMSeconds(FieldSpec[float]):
 
 
 @dataclass
-class ConcatDatetime(FieldSpec[datetime]):
+class ConcatDatetime(Field[datetime]):
     """A date and time formatted CCYYMMDDhhmmss"""
 
     size: int = field(default=14, init=False)
@@ -752,7 +777,7 @@ class ConcatDatetime(FieldSpec[datetime]):
 
 
 @dataclass
-class Uuid(FieldSpec[UUID]):
+class Uuid(Field[UUID]):
     """UUID in canonical form."""
 
     size: int = field(default=36, init=False)
@@ -767,7 +792,7 @@ class Uuid(FieldSpec[UUID]):
 
 
 @dataclass
-class BinaryInt(FieldSpec[int]):
+class BinaryInt(Field[int]):
     """An integer represented in binary instead of ASCII."""
 
     _: KW_ONLY
@@ -784,155 +809,155 @@ class BinaryInt(FieldSpec[int]):
 
 
 @dataclass
-class Constant[T](RuleSpec[T]):
+class Constant[T](Combinator[T]):
     """A wrapper that both supplies and expects a specific value."""
 
-    spec: FieldSpec[T]
+    rule: Field[T]
     value: T
     name: str = field(default="", init=False)
 
     def __post_init__(self) -> None:
         # Get the inner spec's name in order to route it the correct value.
-        self.name = self.spec.name
+        self.name = self.rule.name
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
-        parsed = self.spec.parse(fd, ctx)
+        parsed = self.rule.parse(fd, ctx)
         if parsed != self.value:
             msg = (
-                f"Constant mismatch for '{self.spec.name}': "
+                f"Constant mismatch for '{self.rule.name}': "
                 f"expected {self.value!r}, got {parsed!r}"
             )
             raise ValueError(msg)
         return self.value
 
     @override
-    def _emit(self, value: T | None = None, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: T | None = None, *, ctx: EmitContext) -> list[Item]:
         if value is not None and value != self.value:
-            msg = f"Cannot override constant '{self.spec.name}' with {value!r}."
+            msg = f"Cannot override constant '{self.rule.name}' with {value!r}."
             raise ValueError(msg)
 
-        return self.spec.to_fields(self.value, ctx)
+        return self.rule.to_fields(self.value, ctx)
 
 
 @dataclass
-class Override[T, V](RuleSpec[T | V]):
+class Override[T, V](Combinator[T | V]):
     """Override specific byte patterns with a given value."""
 
-    spec: FieldSpec[T]
+    rule: Field[T]
     mapping: dict[bytes, V]
     name: str = field(default="", init=False)
 
     def __post_init__(self) -> None:
         # Get the inner spec's name in order to route it the correct value.
-        self.name = self.spec.name
+        self.name = self.rule.name
 
         for o_bytes in self.mapping:
-            if len(o_bytes) != self.spec.size:
+            if len(o_bytes) != self.rule.size:
                 msg = f"Override {o_bytes!r} is wrong size"
                 raise ValueError(msg)
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T | V:
         start_pos = fd.tell()
-        b = fd.read(self.spec.size)
+        b = fd.read(self.rule.size)
 
         if b in self.mapping:
             return self.mapping[b]
 
         fd.seek(start_pos)
 
-        # No overrides matched, use the default spec.
-        return self.spec.parse(fd, ctx)
+        # No overrides matched, use the default rule.
+        return self.rule.parse(fd, ctx)
 
     @override
-    def _emit(self, value: T | V, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: T | V, *, ctx: EmitContext) -> list[Item]:
         for o_bytes, o_value in self.mapping.items():
             if value == o_value:
-                return [Field(self.spec.name + ctx.subscripts, o_bytes)]
+                return [Item(self.rule.name + ctx.subscripts, o_bytes)]
 
-        # No overrides matched, use the default spec.
-        return self.spec.to_fields(cast(T, value), ctx)
+        # No overrides matched, use the default rule.
+        return self.rule.to_fields(cast(T, value), ctx)
 
 
 @dataclass
 class Blankable[T](Override[T, None]):
-    """All spaces in a FieldSpec return None."""
+    """All spaces in a `Field` return None."""
 
-    def __init__(self, spec: FieldSpec[T]) -> None:
-        blank_bytes = b" " * spec.size
-        super().__init__(spec, {blank_bytes: None})
+    def __init__(self, rule: Field[T]) -> None:
+        blank_bytes = b" " * rule.size
+        super().__init__(rule, {blank_bytes: None})
 
 
 @dataclass
-class Computed[T](RuleSpec[T]):
-    """A spec that derives its value from the context during emit."""
+class Computed[T](Combinator[T]):
+    """A rule that derives its value from the context during emit."""
 
-    spec: Spec[T]
+    rule: Rule[T]
     getter: Callable[[Context], T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
-        return self.spec.parse(fd, ctx)
+        return self.rule.parse(fd, ctx)
 
     @override
-    def _emit(self, value: Any, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: Any, *, ctx: EmitContext) -> list[Item]:
         computed_val = self.getter(ctx)
-        return self.spec.to_fields(computed_val, ctx)
+        return self.rule.to_fields(computed_val, ctx)
 
 
 @dataclass
-class Vector[T](RuleSpec[list[T]]):
-    """A list of specs translated to/from a list of values."""
+class Vector[T](Combinator[list[T]]):
+    """A list of rules translated to/from a list of values."""
 
-    specs: Sequence[Spec[T]]
+    rules: Sequence[Rule[T]]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[T]:
-        return [spec.parse(fd, ctx) for spec in self.specs]
+        return [rule.parse(fd, ctx) for rule in self.rules]
 
     @override
-    def _emit(self, value: list[T], *, ctx: EmitContext) -> list[Field]:
-        fields: list[Field] = []
+    def _emit(self, value: list[T], *, ctx: EmitContext) -> list[Item]:
+        fields: list[Item] = []
 
-        for spec, v in zip(self.specs, value, strict=True):
-            fields.extend(spec.to_fields(v, ctx))
+        for rule, v in zip(self.rules, value, strict=True):
+            fields.extend(rule.to_fields(v, ctx))
 
         return fields
 
 
 @dataclass
-class VarString(RuleSpec[str]):
+class VarString(Combinator[str]):
     """A string prefixed by a length field."""
 
-    len_spec: FieldSpec[int]
+    len_rule: Field[int]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> str:
-        length = self.len_spec.parse(fd, ctx)
+        length = self.len_rule.parse(fd, ctx)
         if length == 0:
             return ""
         return BcsString("", length).parse(fd, ctx)
 
     @override
-    def _emit(self, value: str, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: str, *, ctx: EmitContext) -> list[Item]:
         if not value:
-            return self.len_spec.to_fields(0, ctx)
+            return self.len_rule.to_fields(0, ctx)
 
-        fields = self.len_spec.to_fields(len(value), ctx)
+        fields = self.len_rule.to_fields(len(value), ctx)
         fields.extend(BcsString("", len(value)).to_fields(value, ctx))
         return fields
 
 
 @dataclass
-class SizedList[T](RuleSpec[list[T]]):
-    """Repeat a body spec `count` times.
+class SizedList[T](Combinator[list[T]]):
+    """Repeat a body rule `count` times.
 
     The count is supplied as an argument or extracted from the context.
     """
 
     count: int | Callable[[Context], int]
-    body: Spec[T]
+    body: Rule[T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[T]:
@@ -940,14 +965,14 @@ class SizedList[T](RuleSpec[list[T]]):
         return [self.body.parse(fd, ctx) for _ in ctx.iterate(range(count))]
 
     @override
-    def _emit(self, value: list[T], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: list[T], *, ctx: EmitContext) -> list[Item]:
         count = self.count(ctx) if callable(self.count) else self.count
 
         if len(value) != count:
             msg = f"Expected {count} items, got {len(value)}"
             raise RuntimeError(msg)
 
-        fields: list[Field] = []
+        fields: list[Item] = []
         for v in ctx.iterate(value):
             fields.extend(self.body.to_fields(v, ctx))
 
@@ -955,11 +980,11 @@ class SizedList[T](RuleSpec[list[T]]):
 
 
 @dataclass
-class PrefixedList[T](RuleSpec[list[T]]):
-    """Repeat a spec based on an initial field with a count."""
+class PrefixedList[T](Combinator[list[T]]):
+    """Repeat a rule based on an initial field with a count."""
 
-    count: Spec[int]
-    body: Spec[T]
+    count: Rule[int]
+    body: Rule[T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[T]:
@@ -967,7 +992,7 @@ class PrefixedList[T](RuleSpec[list[T]]):
         return [self.body.parse(fd, ctx) for _ in ctx.iterate(range(n))]
 
     @override
-    def _emit(self, value: list[T], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: list[T], *, ctx: EmitContext) -> list[Item]:
         fields = self.count.to_fields(len(value), ctx)
         for v in ctx.iterate(value):
             fields.extend(self.body.to_fields(v, ctx))
@@ -976,17 +1001,17 @@ class PrefixedList[T](RuleSpec[list[T]]):
 
 
 @dataclass
-class PrefixedArray[T](RuleSpec[list[list[T]]]):
-    """A 2D array of specs prefixed by row and column counts."""
+class PrefixedArray[T](Combinator[list[list[T]]]):
+    """A 2D array of rules prefixed by row and column counts."""
 
-    rows_spec: Spec[int]
-    cols_spec: Spec[int]
-    body: Spec[T]
+    rows_rule: Rule[int]
+    cols_rule: Rule[int]
+    body: Rule[T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[list[T]]:
-        rows = self.rows_spec.parse(fd, ctx)
-        cols = self.cols_spec.parse(fd, ctx)
+        rows = self.rows_rule.parse(fd, ctx)
+        cols = self.cols_rule.parse(fd, ctx)
 
         return [
             [self.body.parse(fd, ctx) for _ in ctx.iterate(range(cols))]
@@ -994,7 +1019,7 @@ class PrefixedArray[T](RuleSpec[list[list[T]]]):
         ]
 
     @override
-    def _emit(self, value: list[list[T]], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: list[list[T]], *, ctx: EmitContext) -> list[Item]:
         rows = len(value)
         cols = len(value[0]) if rows > 0 else 0
 
@@ -1003,8 +1028,8 @@ class PrefixedArray[T](RuleSpec[list[list[T]]]):
                 msg = f"Jagged arrays are not supported in '{self.name}'."
                 raise ValueError(msg)
 
-        fields = self.rows_spec.to_fields(rows, ctx)
-        fields.extend(self.cols_spec.to_fields(cols, ctx))
+        fields = self.rows_rule.to_fields(rows, ctx)
+        fields.extend(self.cols_rule.to_fields(cols, ctx))
 
         for row in ctx.iterate(value):
             for item in ctx.iterate(row):
@@ -1014,11 +1039,11 @@ class PrefixedArray[T](RuleSpec[list[list[T]]]):
 
 
 @dataclass
-class Optional[T](RuleSpec[T | None]):
+class Optional[T](Combinator[T | None]):
     """A boolean determines if the following body should exist."""
 
-    condition: Spec[bool]
-    body: Spec[T]
+    condition: Rule[bool]
+    body: Rule[T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T | None:
@@ -1028,7 +1053,7 @@ class Optional[T](RuleSpec[T | None]):
         return self.body.parse(fd, ctx)
 
     @override
-    def _emit(self, value: T | None, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: T | None, *, ctx: EmitContext) -> list[Item]:
         if value is None:
             return self.condition.to_fields(False, ctx)
 
@@ -1036,11 +1061,11 @@ class Optional[T](RuleSpec[T | None]):
 
 
 @dataclass
-class Conditional[T](RuleSpec[T | None]):
+class Conditional[T](Combinator[T | None]):
     """Determine if the body should exist based on context."""
 
     condition: Callable[[Context], bool]
-    body: Spec[T]
+    body: Rule[T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T | None:
@@ -1049,7 +1074,7 @@ class Conditional[T](RuleSpec[T | None]):
         return None
 
     @override
-    def _emit(self, value: T | None, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: T | None, *, ctx: EmitContext) -> list[Item]:
         if not self.condition(ctx):
             return []
 
@@ -1067,11 +1092,11 @@ class DataclassProtocol(Protocol):
 
 
 @dataclass
-class DataclassRecord[T: DataclassProtocol](RuleSpec[T]):
-    """Unpacks specs into a dataclass based on their names."""
+class Struct[T: DataclassProtocol](Combinator[T], MatchableRule[T]):
+    """Unpacks rules into a dataclass based on their names."""
 
     model_cls: type[T]
-    specs: Sequence[Spec[Any]]
+    rules: Sequence[Rule[Any]]
 
     def __post_init__(self) -> None:
         self.field_names: set[str] = {f.name for f in fields(self.model_cls)}
@@ -1079,115 +1104,119 @@ class DataclassRecord[T: DataclassProtocol](RuleSpec[T]):
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
         with ctx.scope() as local_kwargs:
-            for spec in self.specs:
-                spec.parse(fd, ctx)
+            for rule in self.rules:
+                # Relying on the behavior of `BaseRule.parse` which injects
+                # named values into the local scope `local_kwargs`.
+                rule.parse(fd, ctx)
 
         valid_keys = local_kwargs.keys() & self.field_names
         filtered_kwargs = {k: local_kwargs[k] for k in valid_keys}
         return self.model_cls(**filtered_kwargs)
 
     @override
-    def _emit(self, value: T, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]:
         val_dict = vars(value)
 
         with ctx.scope(val_dict):
-            out_fields: list[Field] = []
-            for spec in self.specs:
-                child_val = val_dict.get(spec.name) if spec.name else val_dict
-                out_fields.extend(spec.to_fields(child_val, ctx))
+            out_fields: list[Item] = []
+            for rule in self.rules:
+                child_val = val_dict.get(rule.name) if rule.name else val_dict
+                out_fields.extend(rule.to_fields(child_val, ctx))
 
         return out_fields
 
+    @override
     def matches(self, value: object) -> TypeGuard[T]:
         """Check if a Python object belongs to this record's dataclass."""
         return isinstance(value, self.model_cls)
 
 
 @dataclass
-class VariantRecord[TagType, PayloadType](RuleSpec[PayloadType]):
-    """A discriminated union of `DataclassRecord` specs.
+class Variant[TagType, ValueType](Combinator[ValueType]):
+    """A discriminated union of rules.
 
     The leading field is a tag that determines the form of the following
     fields.
     """
 
-    tag_spec: FieldSpec[TagType]
-    cases: dict[TagType, DataclassRecord[Any]]
+    tag_rule: Field[TagType]
+    cases: dict[TagType, MatchableRule[ValueType]]
 
     @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> PayloadType:
-        tag = self.tag_spec.parse(fd, ctx)
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> ValueType:
+        tag = self.tag_rule.parse(fd, ctx)
 
         if tag not in self.cases:
-            msg = f"Unrecognized tag {tag!r} in VariantRecord '{self.name}'"
+            msg = f"Unrecognized tag {tag!r} in Variant '{self.name}'"
             raise ValueError(msg)
 
         parser = self.cases[tag]
-        return cast(PayloadType, parser.parse(fd, ctx))
+        return parser.parse(fd, ctx)
 
     @override
-    def _emit(self, value: PayloadType, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: ValueType, *, ctx: EmitContext) -> list[Item]:
         tag_to_write = None
 
-        for tag, spec in self.cases.items():
-            if spec.matches(value):
+        for tag, rule in self.cases.items():
+            if rule.matches(value):
                 tag_to_write = tag
+                break
 
         if tag_to_write is None:
             cname = type(value).__name__
-            msg = f"Unexpected class {cname} for VariantRecord '{self.name}'"
+            msg = f"Unexpected class {cname} for Variant '{self.name}'"
             raise TypeError(msg)
 
-        spec_to_use = self.cases[tag_to_write]
-        fields = self.tag_spec.to_fields(tag_to_write, ctx)
-        fields.extend(spec_to_use.to_fields(value, ctx))
+        rule_to_use = self.cases[tag_to_write]
+        fields = self.tag_rule.to_fields(tag_to_write, ctx)
+        fields.extend(rule_to_use.to_fields(value, ctx))
 
         return fields
 
 
 @dataclass
-class DictRecord(RuleSpec[dict[str, Any]]):
-    """A spec that returns its child specs as a dict."""
+class Group(Combinator[dict[str, Any]]):
+    """A rule that returns its child values as a dict."""
 
-    specs: Sequence[Spec[Any]]
+    rules: Sequence[Rule[Any]]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> dict[str, Any]:
         with ctx.scope() as local_kwargs:
-            for spec in self.specs:
-                spec.parse(fd, ctx)
+            for rule in self.rules:
+                rule.parse(fd, ctx)
 
             return local_kwargs
 
     @override
-    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Item]:
         with ctx.scope(value):
-            out_fields: list[Field] = []
-            for spec in self.specs:
-                child_val = value.get(spec.name) if spec.name else value
-                out_fields.extend(spec.to_fields(child_val, ctx))
+            out_fields: list[Item] = []
+            for rule in self.rules:
+                child_val = value.get(rule.name) if rule.name else value
+                out_fields.extend(rule.to_fields(child_val, ctx))
 
         return out_fields
 
 
 @dataclass
-class SizedBlock(RuleSpec[dict[str, Any]]):
-    """A spec with a leading field containing the size of the body.
+class SizedBlock(Combinator[dict[str, Any]]):
+    """A rule with a leading value containing the size of the body.
 
-    Unlike DictRecord or DataclassRecord, SizedBlock doesn't push a new scope:
-    it's meant to be a transparent "measuring tape" for the body.
+    Unlike `Struct` or `Group`, `SizedBlock` doesn't push a new scope: it's
+    meant to be a transparent "measuring tape" for the body.
     """
 
-    length_spec: Spec[int]
-    body: Sequence[Spec[Any]]
+    length_rule: Rule[int]
+    body: Sequence[Rule[Any]]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> dict[str, Any]:
-        expected_size = self.length_spec.parse(fd, ctx)
+        expected_size = self.length_rule.parse(fd, ctx)
         start_pos = fd.tell()
 
-        for spec in self.body:
-            spec.parse(fd, ctx)
+        for rule in self.body:
+            rule.parse(fd, ctx)
 
         bytes_read = fd.tell() - start_pos
         if bytes_read != expected_size:
@@ -1197,27 +1226,27 @@ class SizedBlock(RuleSpec[dict[str, Any]]):
         return ctx.local_scope
 
     @override
-    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Field]:
-        body_fields: list[Field] = []
+    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Item]:
+        body_fields: list[Item] = []
 
-        for spec in self.body:
-            child_val = value.get(spec.name) if spec.name else value
-            body_fields.extend(spec.to_fields(child_val, ctx))
+        for rule in self.body:
+            child_val = value.get(rule.name) if rule.name else value
+            body_fields.extend(rule.to_fields(child_val, ctx))
 
         body_len = sum(len(f.value) for f in body_fields)
-        len_fields = self.length_spec.to_fields(body_len, ctx)
+        len_fields = self.length_rule.to_fields(body_len, ctx)
         return len_fields + body_fields
 
 
 @dataclass
-class Switch[TagType, PayloadType](RuleSpec[PayloadType]):
+class Switch[TagType, T](Combinator[T], MatchableRule[T]):
     """Branches parsing logic based on a previously evaluated context value."""
 
     get_tag: Callable[[ParseContext], TagType]
-    cases: dict[TagType, Spec[PayloadType]]
+    cases: dict[TagType, MatchableRule[T]]
 
     @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> PayloadType:
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
         tag = self.get_tag(ctx)
 
         if tag not in self.cases:
@@ -1227,12 +1256,11 @@ class Switch[TagType, PayloadType](RuleSpec[PayloadType]):
         return self.cases[tag].parse(fd, ctx)
 
     @override
-    def _emit(self, value: PayloadType, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]:
         tag_to_write = None
 
-        for tag, spec in self.cases.items():
-            matches = getattr(spec, "matches", None)
-            if matches and matches(value):
+        for tag, rule in self.cases.items():
+            if rule.matches(value):
                 tag_to_write = tag
                 break
 
@@ -1242,9 +1270,13 @@ class Switch[TagType, PayloadType](RuleSpec[PayloadType]):
 
         return self.cases[tag_to_write].to_fields(value, ctx)
 
+    @override
+    def matches(self, value: object) -> TypeGuard[T]:
+        return any(rule.matches(value) for rule in self.cases.values())
+
 
 @dataclass
-class SegmentRecord[T: DataclassProtocol](DataclassRecord[T]):
+class Segment[T: DataclassProtocol](Struct[T]):
     """Splits a dataclass into header and data fields.
 
     NITF measures the length of the segment subheader and segment data
@@ -1252,50 +1284,56 @@ class SegmentRecord[T: DataclassProtocol](DataclassRecord[T]):
     """
 
     model_cls: type[T]
-    subheader_specs: list[Spec[Any]]
-    data_specs: list[Spec[Any]]
+    subheader: list[Rule[Any]]
+    data: list[Rule[Any]]
 
-    specs: Sequence[Spec[Any]] = field(init=False)
+    rules: Sequence[Rule[Any]] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.specs = self.subheader_specs + self.data_specs
+        # Collect the subheader and data rules into `self.rules` so the
+        # `Struct` logic works unchanged.
+        self.rules = self.subheader + self.data
+
+        # Run the `Struct` function to populate `self.field_names`.
         super().__post_init__()
 
-    def emit_segment(
-        self, value: T, ctx: EmitContext
-    ) -> tuple[list[Field], list[Field]]:
+    def emit_segment(self, value: T, ctx: EmitContext) -> tuple[list[Item], list[Item]]:
         """As _emit, but return the fields split into subheader and data fields."""
         val_dict = vars(value)
 
         with ctx.scope(val_dict):
-            sub_fields: list[Field] = []
-            for spec in self.subheader_specs:
-                child_val = val_dict.get(spec.name) if spec.name else val_dict
-                sub_fields.extend(spec.to_fields(child_val, ctx))
+            sub_fields: list[Item] = []
+            for rule in self.subheader:
+                child_val = val_dict.get(rule.name) if rule.name else val_dict
+                sub_fields.extend(rule.to_fields(child_val, ctx))
 
-            data_fields: list[Field] = []
-            for spec in self.data_specs:
-                child_val = val_dict.get(spec.name) if spec.name else val_dict
-                data_fields.extend(spec.to_fields(child_val, ctx))
+            data_fields: list[Item] = []
+            for rule in self.data:
+                child_val = val_dict.get(rule.name) if rule.name else val_dict
+                data_fields.extend(rule.to_fields(child_val, ctx))
 
             return sub_fields, data_fields
 
 
 @dataclass
-class ReservedExtensions(RuleSpec[dict[str, Any]]):
+class ReservedExtensions(Combinator[dict[str, Any]]):
     """A transparent block for dynamic Reserved Field Areas (e.g., CSCSDB).
 
     Reads the global reserved length, the mask length, the boolean mask,
     and then selectively reads the payload for each active area.
     Unrecognized areas are preserved as raw bytes to allow round-tripping.
+
+    Each Rule in cases must have a name. When parsing, if that reserved area is
+    present, it will be assigned to that name, which will otherwise be None.
+    When emitting, a reserved area will be generated for each of the items with
+    non-None values.
     """
 
-    size_spec: Spec[int]
-    msize_spec: Spec[int]
+    size: Rule[int]
+    mask_size: Rule[int]
 
-    # Maps a **1-based** area index to a Spec. The Spec must have a non-empty
-    # name; each name will be written with None or the Spec value.
-    cases: dict[int, Spec[Any]]
+    # Maps a **1-based** area index to a `Rule`.
+    cases: dict[int, Rule[Any]]
 
     # Unknown Reserved Field Areas can be parsed as raw bytes and stored for
     # correct round-tripping. `unknown_name` will be the name for the unknown
@@ -1303,19 +1341,19 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
     unknown_name: str = "unknown_extensions"
 
     def __post_init__(self) -> None:
-        for i, spec in self.cases.items():
-            if not spec.name:
-                msg = f"Area specs must have a 'name', but area {i} does not."
+        for i, rule in self.cases.items():
+            if not rule.name:
+                msg = f"Area rules must have a 'name', but area {i} does not."
                 raise ValueError(msg)
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> dict[str, Any]:
-        total_len = self.size_spec.parse(fd, ctx)
+        total_len = self.size.parse(fd, ctx)
 
         # Initialize all defined areas to None in the parent scope.
-        for spec in self.cases.values():
-            if spec.name:
-                ctx[spec.name] = None
+        for rule in self.cases.values():
+            if rule.name:
+                ctx[rule.name] = None
 
         # Initialize the unknown entries.
         ctx[self.unknown_name] = {}
@@ -1323,7 +1361,7 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
         if total_len == 0:
             return ctx.local_scope
 
-        mask_len = self.msize_spec.parse(fd, ctx)
+        mask_len = self.mask_size.parse(fd, ctx)
         mask = BcsString("RESERVED_FIELD_MASK", mask_len).parse(fd, ctx)
 
         unknowns: dict[int, bytes] = {}
@@ -1337,27 +1375,27 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
                 unknowns[i] = fd.read(area_len)
                 continue
 
-            spec = self.cases[i]
-            SizedBlock(Int(f"RESERVED_LEN_AREA{i}", 9), [spec]).parse(fd, ctx)
+            rule = self.cases[i]
+            SizedBlock(Int(f"RESERVED_LEN_AREA{i}", 9), [rule]).parse(fd, ctx)
 
         ctx[self.unknown_name] = unknowns
         return ctx.local_scope
 
     @override
-    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Item]:
         unknowns: dict[int, bytes] = value.get(self.unknown_name) or {}
 
         active_indices = set(unknowns.keys())
-        for i, spec in self.cases.items():
-            if spec.name and value.get(spec.name) is not None:
+        for i, rule in self.cases.items():
+            if rule.name and value.get(rule.name) is not None:
                 active_indices.add(i)
 
         if not active_indices:
-            return self.size_spec.to_fields(0, ctx)
+            return self.size.to_fields(0, ctx)
 
         mask_len = max(active_indices)
         mask_chars: list[str] = []
-        area_fields: list[Field] = []
+        area_fields: list[Item] = []
 
         for i in range(1, mask_len + 1):
             if i not in active_indices:
@@ -1371,25 +1409,25 @@ class ReservedExtensions(RuleSpec[dict[str, Any]]):
                 size = len(payload_bytes)
                 alen_field = Int(f"RESERVED_LEN_AREA{i}", 9).to_fields(size, ctx=ctx)
                 area_fields.extend(alen_field)
-                area_fields.append(Field(f"RESERVED_AREA_{i}_DATA", payload_bytes))
+                area_fields.append(Item(f"RESERVED_AREA_{i}_DATA", payload_bytes))
             else:
-                spec = self.cases[i]
-                block = SizedBlock(Int(f"RESERVED_LEN_AREA{i}", 9), body=[spec])
+                rule = self.cases[i]
+                block = SizedBlock(Int(f"RESERVED_LEN_AREA{i}", 9), body=[rule])
                 area_fields.extend(block.to_fields(value, ctx))
 
         mask_str = "".join(mask_chars)
-        mlen_field = self.msize_spec.to_fields(mask_len, ctx)
+        mlen_field = self.mask_size.to_fields(mask_len, ctx)
         mask_field = BcsString("RESERVED_FIELD_MASK", mask_len).to_fields(mask_str, ctx)
         header_fields = [*mlen_field, *mask_field]
 
-        total_len = field_size(header_fields) + field_size(area_fields)
-        rfa_len_field = self.size_spec.to_fields(total_len, ctx)
+        total_len = item_size(header_fields) + item_size(area_fields)
+        rfa_len_field = self.size.to_fields(total_len, ctx)
 
         return [*rfa_len_field, *header_fields, *area_fields]
 
 
 @dataclass
-class SpecNotImplemented(Spec[None]):
+class RuleNotImplemented(BaseRule[None]):
 
     name: str = ""
 
@@ -1398,5 +1436,5 @@ class SpecNotImplemented(Spec[None]):
         raise NotImplementedError
 
     @override
-    def _emit(self, value: None, *, ctx: EmitContext) -> list[Field]:
+    def _emit(self, value: None, *, ctx: EmitContext) -> list[Item]:
         raise NotImplementedError

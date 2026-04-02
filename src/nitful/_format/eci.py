@@ -7,10 +7,10 @@ significant digits than can be represented with a double-precision float.
 from decimal import Decimal
 from typing import Any
 
-from nitful._dsl.spec import Fixed, FixedDecimal, Spec
+from nitful._dsl.rules import Fixed, FixedDecimal, Rule
 from nitful._dsl.validator import Range
 
-eci_spec: list[Spec[Any]] = [
+eci_spec: list[Rule[Any]] = [
     FixedDecimal("TA_POLE", 19, Range(Decimal("2e6"), Decimal("3e6")), ndigits=11),
     Fixed("A_POLE", 11, Range(-1.0, 1.0), sign=True, ndigits=8),
     Fixed("B_POLE", 11, Range(-1.0, 1.0), sign=True, ndigits=8),

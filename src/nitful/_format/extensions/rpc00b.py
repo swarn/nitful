@@ -1,19 +1,19 @@
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsFloat,
     BcsString,
     Constant,
-    DataclassRecord,
     Fixed,
     Int,
     SizedList,
+    Struct,
 )
 from nitful._dsl.validator import NonNegative, NonZero, Positive
 from nitful._format.tre import register_tre
 from nitful.extensions.rpc00b import RPC00B
 
-rpc00b_spec = DataclassRecord(
+rpc00b_spec = Struct(
     model_cls=RPC00B,
-    specs=[
+    rules=[
         Constant(BcsString("CETAG", 6), "RPC00B"),
         Constant(Int("CEL", 5), 1041),
         Constant(Int("SUCCESS", 1), 1),

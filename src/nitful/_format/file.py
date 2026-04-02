@@ -4,21 +4,21 @@ from dataclasses import dataclass, fields
 from os import SEEK_CUR
 from typing import BinaryIO
 
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
     ConcatDatetime,
     Constant,
-    DataclassRecord,
-    DictRecord,
     EcsString,
     EmitContext,
-    Field,
+    Group,
     HexColor,
     Int,
+    Item,
     ParseContext,
     PrefixedList,
-    field_size,
+    Struct,
+    item_size,
 )
 from nitful._dsl.validator import Literals, NonNegative, NotBlank
 from nitful.core.common import EncryptionLevel
@@ -60,9 +60,9 @@ class ReservedSegmentInfo:
     LRE: int
 
 
-header_spec = DictRecord(
+header_spec = Group(
     name="file header",
-    specs=[
+    rules=[
         BcsString("FHDR", 4, Literals(["NITF", "NSIF"])),
         BcsString("FVER", 5, Literals(["01.01", "02.10"])),
         Int("CLEVEL", 2, Literals([3, 5, 6, 7, 9, 51, 54, 57])),
@@ -82,28 +82,28 @@ header_spec = DictRecord(
         PrefixedList(
             name="image_segment_info",
             count=Int("NUMI", 3),
-            body=DataclassRecord(ImageSegmentInfo, [Int("LISH", 6), Int("LI", 10)]),
+            body=Struct(ImageSegmentInfo, [Int("LISH", 6), Int("LI", 10)]),
         ),
         PrefixedList(
             name="graphic_segment_info",
             count=Int("NUMS", 3),
-            body=DataclassRecord(GraphicSegmentInfo, [Int("LSSH", 4), Int("LS", 6)]),
+            body=Struct(GraphicSegmentInfo, [Int("LSSH", 4), Int("LS", 6)]),
         ),
         Constant(Int("NUMX", 3), 0),
         PrefixedList(
             name="text_segment_info",
             count=Int("NUMT", 3),
-            body=DataclassRecord(TextSegmentInfo, [Int("LTSH", 4), Int("LT", 5)]),
+            body=Struct(TextSegmentInfo, [Int("LTSH", 4), Int("LT", 5)]),
         ),
         PrefixedList(
             name="data_segment_info",
             count=Int("NUMDES", 3),
-            body=DataclassRecord(DataSegmentInfo, [Int("LDSH", 4), Int("LD", 9)]),
+            body=Struct(DataSegmentInfo, [Int("LDSH", 4), Int("LD", 9)]),
         ),
         PrefixedList(
             name="reserved_segment_info",
             count=Int("NUMRES", 3),
-            body=DataclassRecord(ReservedSegmentInfo, [Int("LRESH", 4), Int("LRE", 7)]),
+            body=Struct(ReservedSegmentInfo, [Int("LRESH", 4), Int("LRE", 7)]),
         ),
     ],
 )
@@ -159,7 +159,7 @@ def read_file(fd: BinaryIO) -> NitfFile:
     return NitfFile(**kwargs)
 
 
-def to_fields(nitf: NitfFile) -> list[Field]:
+def to_fields(nitf: NitfFile) -> list[Item]:
     ctx = EmitContext()
 
     # We know how many segments there are, but not their sizes.
@@ -189,17 +189,17 @@ def to_fields(nitf: NitfFile) -> list[Field]:
     header_fields.extend(xhd_fields)
 
     # Fill in the length of the header.
-    hl = field_size(header_fields)
+    hl = item_size(header_fields)
     field_map["HL"].value = Int("HL", 6).encode(hl)
 
-    segment_fields: list[Field] = []
+    segment_fields: list[Item] = []
 
     for i, img in enumerate(nitf.image_segments):
         img_subhead, img_data = image_to_fields(img, ctx)
 
-        lish = field_size(img_subhead)
+        lish = item_size(img_subhead)
         field_map[f"LISH[{i}]"].value = Int("LISH", 6).encode(lish)
-        li = field_size(img_data)
+        li = item_size(img_data)
         field_map[f"LI[{i}]"].value = Int("LI", 10).encode(li)
 
         segment_fields.extend(img_subhead)
@@ -212,9 +212,9 @@ def to_fields(nitf: NitfFile) -> list[Field]:
     for i, des in enumerate(nitf.data_segments):
         des_subhead, des_data = des_to_fields(des, ctx)
 
-        ldsh = field_size(des_subhead)
+        ldsh = item_size(des_subhead)
         field_map[f"LDSH[{i}]"].value = Int("LDSH", 4).encode(ldsh)
-        ld = field_size(des_data)
+        ld = item_size(des_data)
         field_map[f"LD[{i}]"].value = Int("LD", 9).encode(ld)
 
         segment_fields.extend(des_subhead)
@@ -223,7 +223,7 @@ def to_fields(nitf: NitfFile) -> list[Field]:
     # Reserved segments will go here.
 
     # Patch the file length.
-    fl = hl + field_size(segment_fields)
+    fl = hl + item_size(segment_fields)
     field_map["FL"].value = Int("FL", 12).encode(fl)
 
     return header_fields + segment_fields

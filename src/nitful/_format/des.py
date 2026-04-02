@@ -1,39 +1,39 @@
 from typing import BinaryIO, cast
 
-from nitful._dsl.spec import (
+from nitful._dsl.rules import (
     BcsString,
     Constant,
     EmitContext,
-    Field,
     FixedBytes,
     Int,
+    Item,
     ParseContext,
-    SegmentRecord,
+    Segment,
 )
 from nitful._format.security import security_len, security_spec
 from nitful.core.common import DES, UnknownDES
 
-des_read_registry: dict[tuple[str, int], SegmentRecord[DES]] = {}
-des_write_registry: dict[type[DES], SegmentRecord[DES]] = {}
+des_read_registry: dict[tuple[str, int], Segment[DES]] = {}
+des_write_registry: dict[type[DES], Segment[DES]] = {}
 
 
-def register_des[T: DES](desid: str, desver: int, spec: SegmentRecord[T]) -> None:
+def register_des[T: DES](desid: str, desver: int, spec: Segment[T]) -> None:
     """Register a specification for a DES."""
-    des_read_registry[desid, desver] = cast(SegmentRecord[DES], spec)
-    des_write_registry[spec.model_cls] = cast(SegmentRecord[DES], spec)
+    des_read_registry[desid, desver] = cast(Segment[DES], spec)
+    des_write_registry[spec.model_cls] = cast(Segment[DES], spec)
 
 
-def make_unknown_spec(header_len: int, data_len: int) -> SegmentRecord[UnknownDES]:
-    return SegmentRecord[UnknownDES](
+def make_unknown_spec(header_len: int, data_len: int) -> Segment[UnknownDES]:
+    return Segment[UnknownDES](
         UnknownDES,
-        subheader_specs=[
+        subheader=[
             Constant(BcsString("DE", 2), "DE"),
             BcsString("DESID", 25),
             Int("DESVER", 2),
             security_spec,
             FixedBytes("DESSH", header_len - security_len - 29),
         ],
-        data_specs=[
+        data=[
             FixedBytes("DESDATA", data_len),
         ],
     )
@@ -79,7 +79,7 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int, ctx: ParseContext) ->
     return des
 
 
-def des_to_fields(des: DES, ctx: EmitContext) -> tuple[list[Field], list[Field]]:
+def des_to_fields(des: DES, ctx: EmitContext) -> tuple[list[Item], list[Item]]:
 
     if isinstance(des, UnknownDES):
         header_len = len(des.DESSH) + security_len + 29

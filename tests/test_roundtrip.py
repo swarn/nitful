@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from nitful import ParseError, SerializeError, load, write
-from nitful._dsl.spec import Field
+from nitful._dsl.rules import Item
 from nitful._format.file import to_fields
 
 TEST_DATA_DIR = Path(__file__).parent / "data"
@@ -33,7 +33,7 @@ def test_full_nitf_roundtrip(filepath: Path) -> None:
         return
 
     fields = to_fields(nitf_file)
-    offset_to_field: dict[int, Field] = {}
+    offset_to_field: dict[int, Item] = {}
     current_offset = 0
     for f in fields:
         field_len = len(f.value)
