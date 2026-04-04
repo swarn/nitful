@@ -19,6 +19,7 @@ from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
     Bool,
+    Case,
     Combinator,
     Constant,
     EmitContext,
@@ -153,28 +154,42 @@ csephb = Segment(
         Variant(
             name="interpolation",
             tag_rule=BcsIntEnum("INTERP_TYPE_EPH", 1, enum=InterpolationType),
-            cases={
-                InterpolationType.NEAREST: Struct(NearestNeighbor, []),
-                InterpolationType.LINEAR: Struct(Linear, []),
-                InterpolationType.LAGRANGIAN: Struct(
-                    Lagrangian, [Int("INTERP_ORDER_EPH", 1, one_of(3, 5, 7))]
+            cases=[
+                Case(
+                    InterpolationType.NEAREST,
+                    NearestNeighbor,
+                    Struct(NearestNeighbor, []),
                 ),
-            },
+                Case(
+                    InterpolationType.LINEAR,
+                    Linear,
+                    Struct(Linear, []),
+                ),
+                Case(
+                    InterpolationType.LAGRANGIAN,
+                    Lagrangian,
+                    Struct(Lagrangian, [Int("INTERP_ORDER_EPH", 1, one_of(3, 5, 7))]),
+                ),
+            ],
         ),
         BcsIntEnum("EPHEM_FLAG", 1, enum=EphemerisSource),
         Variant(
             name="frame",
             tag_rule=BcsIntEnum("ECI_ECF_EPHEM", 1, enum=Frame),
-            cases={
-                Frame.ECF: Struct(ECF, []),
-                Frame.ECI: Switch(
-                    get_tag=lambda ctx: ctx["DESVER"],
-                    cases={
-                        1: Struct(ECIv1, []),
-                        2: Struct(ECI, eci_spec),
-                    },
+            cases=[
+                Case(Frame.ECF, ECF, Struct(ECF, [])),
+                Case(
+                    Frame.ECI,
+                    (ECI, ECIv1),
+                    Switch(
+                        get_tag=lambda ctx: ctx["DESVER"],
+                        cases={
+                            1: Struct(ECIv1, []),
+                            2: Struct(ECI, eci_spec),
+                        },
+                    ),
                 ),
-            },
+            ],
         ),
         Fixed("DT_EPHEM", 13, in_range(1e-9, 1000 - 1e-9), ndigits=9),
         IsoDate("DATE_EPHEM"),

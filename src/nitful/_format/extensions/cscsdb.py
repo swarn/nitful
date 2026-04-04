@@ -6,6 +6,7 @@ from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
     Bool,
+    Case,
     Computed,
     Constant,
     Context,
@@ -77,23 +78,27 @@ def num_covar_elems(name: str) -> Callable[[Context], int]:
 
 direct_cover: Variant[int, DirectCovariance] = Variant(
     tag_rule=Int("DC_TYPE", 1, in_range(0, 9)),
-    cases={
-        0: Struct(
+    cases=[
+        Case(
+            0,
             DirectCovariance0,
-            [
-                PrefixedList(
-                    name="adjustments",
-                    count=Int("NUM_PARA", 4, positive),
-                    body=BcsFloat("ADJ", 21, edigits=2),
-                ),
-                SizedList(
-                    name="covariances",
-                    count=num_covar_elems("adjustments"),
-                    body=BcsFloat("ERRCOV_C4", 21, edigits=2),
-                ),
-            ],
+            Struct(
+                DirectCovariance0,
+                [
+                    PrefixedList(
+                        name="adjustments",
+                        count=Int("NUM_PARA", 4, positive),
+                        body=BcsFloat("ADJ", 21, edigits=2),
+                    ),
+                    SizedList(
+                        name="covariances",
+                        count=num_covar_elems("adjustments"),
+                        body=BcsFloat("ERRCOV_C4", 21, edigits=2),
+                    ),
+                ],
+            ),
         )
-    },
+    ],
 )
 
 
@@ -202,83 +207,91 @@ unmodeled_error = Struct(
     ],
 )
 
+ts_group1 = Struct(
+    TsGroup1,
+    [
+        IsoDate("CORR_REF_DATE_TS"),
+        HMSeconds("CORR_REF_TIME_TS"),
+        BcsFloat("TSRR", 21, edigits=2),
+        BcsFloat("TSRC", 21, edigits=2),
+        BcsFloat("TSCC", 21, edigits=2),
+        Int("TS_SPDCF", 2, positive),
+    ],
+)
+
+ts_group2 = Struct(
+    TsGroup2,
+    [
+        IsoDate("CORR_REF_DATE_TSP"),
+        HMSeconds("CORR_REF_TIME_TSP"),
+        BcsFloat("TS_POS_COV", 21, edigits=2),
+        Int("TS_POS_SPDCF", 2, positive),
+        IsoDate("CORR_REF_DATE_TSA"),
+        HMSeconds("CORR_REF_TIME_TSA"),
+        BcsFloat("TS_ATT_COV", 21, edigits=2),
+        Int("TS_ATT_SPDCF", 2, positive),
+    ],
+)
+
+ts_group3 = Struct(
+    TsGroup3,
+    [
+        IsoDate("CORR_REF_DATE_TS"),
+        HMSeconds("CORR_REF_TIME_TS"),
+        BcsFloat("TS_POS_COV", 21, edigits=2),
+        BcsFloat("TS_POS_ATT_COV", 21, edigits=2),
+        BcsFloat("TS_POS_FL_COV", 21, edigits=2),
+        BcsFloat("TS_ATT_COV", 21, edigits=2),
+        BcsFloat("TS_ATT_FL_COV", 21, edigits=2),
+        BcsFloat("TS_FL_COV", 21, edigits=2),
+        Int("TS_SPDCF", 2, positive),
+    ],
+)
+
+ts_group4 = Struct(
+    TsGroup4,
+    [
+        IsoDate("CORR_REF_DATE_TSPA"),
+        HMSeconds("CORR_REF_TIME_TSPA"),
+        BcsFloat("TS_POS_COV", 21, edigits=2),
+        BcsFloat("TS_POS_ATT_COV", 21, edigits=2),
+        BcsFloat("TS_ATT_COV", 21, edigits=2),
+        Int("TS_PA_SPDCF", 2, positive),
+        IsoDate("CORR_REF_DATE_TSFL"),
+        HMSeconds("CORR_REF_TIME_TSFL"),
+        BcsFloat("TS_FL_COV", 21, edigits=2),
+        Int("TS_FL_SPDCF", 2, positive),
+    ],
+)
+
+ts_group5 = Struct(
+    TsGroup5,
+    [
+        IsoDate("CORR_REF_DATE_TSP"),
+        HMSeconds("CORR_REF_TIME_TSP"),
+        BcsFloat("TS_POS_COV", 21, edigits=2),
+        Int("TS_POS_SPDCF", 2, positive),
+        IsoDate("CORR_REF_DATE_TSA"),
+        HMSeconds("CORR_REF_TIME_TSA"),
+        BcsFloat("TS_ATT_COV", 21, edigits=2),
+        Int("TS_ATT_SPDCF", 2, positive),
+        IsoDate("CORR_REF_DATE_TSFL"),
+        HMSeconds("CORR_REF_TIME_TSFL"),
+        BcsFloat("TS_FL_COV", 21, edigits=2),
+        Int("TS_FL_SPDCF", 2, positive),
+    ],
+)
 
 ts_calibration: Variant[int, TsCalibration] = Variant(
     tag_rule=Int("NUM_TS_GRP", 1, in_range(1, 5)),
-    cases={
-        1: Struct(
-            TsGroup1,
-            [
-                IsoDate("CORR_REF_DATE_TS"),
-                HMSeconds("CORR_REF_TIME_TS"),
-                BcsFloat("TSRR", 21, edigits=2),
-                BcsFloat("TSRC", 21, edigits=2),
-                BcsFloat("TSCC", 21, edigits=2),
-                Int("TS_SPDCF", 2, positive),
-            ],
-        ),
-        2: Struct(
-            TsGroup2,
-            [
-                IsoDate("CORR_REF_DATE_TSP"),
-                HMSeconds("CORR_REF_TIME_TSP"),
-                BcsFloat("TS_POS_COV", 21, edigits=2),
-                Int("TS_POS_SPDCF", 2, positive),
-                IsoDate("CORR_REF_DATE_TSA"),
-                HMSeconds("CORR_REF_TIME_TSA"),
-                BcsFloat("TS_ATT_COV", 21, edigits=2),
-                Int("TS_ATT_SPDCF", 2, positive),
-            ],
-        ),
-        3: Struct(
-            TsGroup3,
-            [
-                IsoDate("CORR_REF_DATE_TS"),
-                HMSeconds("CORR_REF_TIME_TS"),
-                BcsFloat("TS_POS_COV", 21, edigits=2),
-                BcsFloat("TS_POS_ATT_COV", 21, edigits=2),
-                BcsFloat("TS_POS_FL_COV", 21, edigits=2),
-                BcsFloat("TS_ATT_COV", 21, edigits=2),
-                BcsFloat("TS_ATT_FL_COV", 21, edigits=2),
-                BcsFloat("TS_FL_COV", 21, edigits=2),
-                Int("TS_SPDCF", 2, positive),
-            ],
-        ),
-        4: Struct(
-            TsGroup4,
-            [
-                IsoDate("CORR_REF_DATE_TSPA"),
-                HMSeconds("CORR_REF_TIME_TSPA"),
-                BcsFloat("TS_POS_COV", 21, edigits=2),
-                BcsFloat("TS_POS_ATT_COV", 21, edigits=2),
-                BcsFloat("TS_ATT_COV", 21, edigits=2),
-                Int("TS_PA_SPDCF", 2, positive),
-                IsoDate("CORR_REF_DATE_TSFL"),
-                HMSeconds("CORR_REF_TIME_TSFL"),
-                BcsFloat("TS_FL_COV", 21, edigits=2),
-                Int("TS_FL_SPDCF", 2, positive),
-            ],
-        ),
-        5: Struct(
-            TsGroup5,
-            [
-                IsoDate("CORR_REF_DATE_TSP"),
-                HMSeconds("CORR_REF_TIME_TSP"),
-                BcsFloat("TS_POS_COV", 21, edigits=2),
-                Int("TS_POS_SPDCF", 2, positive),
-                IsoDate("CORR_REF_DATE_TSA"),
-                HMSeconds("CORR_REF_TIME_TSA"),
-                BcsFloat("TS_ATT_COV", 21, edigits=2),
-                Int("TS_ATT_SPDCF", 2, positive),
-                IsoDate("CORR_REF_DATE_TSFL"),
-                HMSeconds("CORR_REF_TIME_TSFL"),
-                BcsFloat("TS_FL_COV", 21, edigits=2),
-                Int("TS_FL_SPDCF", 2, positive),
-            ],
-        ),
-    },
+    cases=[
+        Case(1, TsGroup1, ts_group1),
+        Case(2, TsGroup2, ts_group2),
+        Case(3, TsGroup3, ts_group3),
+        Case(4, TsGroup4, ts_group4),
+        Case(5, TsGroup5, ts_group5),
+    ],
 )
-
 
 io_calibration = Struct(
     IoCalibration,

@@ -8,6 +8,7 @@ from nitful._dsl.rules import (
     BcsStringEnum,
     BinaryInt,
     Blankable,
+    Case,
     Computed,
     Constant,
     Fixed,
@@ -291,11 +292,19 @@ framer_alignment = Struct(
         Variant(
             name="telescope_optics",
             tag_rule=BcsIntEnum("TELESCOPE_OPTICS_FLAG", 1, enum=TelescopeOpticsFlag),
-            cases={
-                TelescopeOpticsFlag.NONE: Nothing(),
-                TelescopeOpticsFlag.FRAME_BASED: telescope_optics_frame,
-                TelescopeOpticsFlag.TIME_BASED: telescope_optics_time,
-            },
+            cases=[
+                Case(TelescopeOpticsFlag.NONE, type(None), Nothing()),
+                Case(
+                    TelescopeOpticsFlag.FRAME_BASED,
+                    TelescopeOpticsFrameBased,
+                    telescope_optics_frame,
+                ),
+                Case(
+                    TelescopeOpticsFlag.TIME_BASED,
+                    TelescopeOpticsTimeBased,
+                    telescope_optics_time,
+                ),
+            ],
         ),
     ],
 )

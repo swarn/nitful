@@ -3,6 +3,7 @@ from enum import IntEnum
 from nitful._dsl.rules import (
     BcsIntEnum,
     BcsString,
+    Case,
     Constant,
     Fixed,
     HMSeconds,
@@ -78,31 +79,47 @@ csattb = Segment(
         Variant(
             name="interpolation",
             tag_rule=BcsIntEnum("INTERP_TYPE_ATT", 1, enum=InterpolationType),
-            cases={
-                InterpolationType.NEAREST: Struct(NearestNeighbor, []),
-                InterpolationType.LINEAR: Struct(Linear, []),
-                InterpolationType.LAGRANGIAN: Struct(
-                    Lagrangian, [Int("INTERP_ORDER_ATT", 1, one_of(3, 5, 7))]
+            cases=[
+                Case(
+                    InterpolationType.NEAREST,
+                    NearestNeighbor,
+                    Struct(NearestNeighbor, []),
                 ),
-                InterpolationType.SPHERICAL: Struct(
-                    Spherical, [Int("INTERP_ORDER_ATT", 1, one_of(1, 3))]
+                Case(
+                    InterpolationType.LINEAR,
+                    Linear,
+                    Struct(Linear, []),
                 ),
-            },
+                Case(
+                    InterpolationType.LAGRANGIAN,
+                    Lagrangian,
+                    Struct(Lagrangian, [Int("INTERP_ORDER_ATT", 1, one_of(3, 5, 7))]),
+                ),
+                Case(
+                    InterpolationType.SPHERICAL,
+                    Spherical,
+                    Struct(Spherical, [Int("INTERP_ORDER_ATT", 1, one_of(1, 3))]),
+                ),
+            ],
         ),
         BcsIntEnum("ATT_TYPE", 1, enum=AttitudeType),
         Variant(
             name="frame",
             tag_rule=BcsIntEnum("ECI_ECF_ATT", 1, enum=Frame),
-            cases={
-                Frame.ECF: Struct(ECF, []),
-                Frame.ECI: Switch(
-                    get_tag=lambda ctx: ctx["DESVER"],
-                    cases={
-                        1: Struct(ECIv1, []),
-                        2: Struct(ECI, eci_spec),
-                    },
+            cases=[
+                Case(Frame.ECF, ECF, Struct(ECF, [])),
+                Case(
+                    Frame.ECI,
+                    (ECIv1, ECI),
+                    Switch(
+                        get_tag=lambda ctx: ctx["DESVER"],
+                        cases={
+                            1: Struct(ECIv1, []),
+                            2: Struct(ECI, eci_spec),
+                        },
+                    ),
                 ),
-            },
+            ],
         ),
         Fixed("DT_ATT", 13, in_range(1e-9, 1000 - 1e-9), ndigits=9),
         IsoDate("DATE_ATT"),

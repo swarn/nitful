@@ -13,6 +13,7 @@ from nitful._dsl.rules import (
     BinaryInt,
     Blankable,
     Bool,
+    Case,
     Combinator,
     ConcatDatetime,
     Conditional,
@@ -242,21 +243,25 @@ framer_timing = Struct(
     [
         Variant(
             BcsIntEnum("TIME_STAMP_LOC", 1, enum=TimeStampLoc),
-            {
-                TimeStampLoc.MTIMSA: Struct(MtimsaTiming, []),
-                TimeStampLoc.CSEXRB: Struct(
+            [
+                Case(TimeStampLoc.MTIMSA, MtimsaTiming, Struct(MtimsaTiming, [])),
+                Case(
+                    TimeStampLoc.CSEXRB,
                     DesFramerTiming,
-                    [
-                        Blankable(Int("REFERENCE_FRAME_NUM", 9, positive)),
-                        BcsString("BASE_TIMESTAMP", 24),
-                        BinaryInt("DT_MULTIPLIER", 8, positive),
-                        BinaryInt("DT_SIZE", 1, positive),
-                        BinaryInt("NUMBER_FRAMES", 4, positive),
-                        BinaryInt("NUMBER_DT", 4, nonnegative),
-                        TimeDeltas(name="time_deltas"),
-                    ],
+                    Struct(
+                        DesFramerTiming,
+                        [
+                            Blankable(Int("REFERENCE_FRAME_NUM", 9, positive)),
+                            BcsString("BASE_TIMESTAMP", 24),
+                            BinaryInt("DT_MULTIPLIER", 8, positive),
+                            BinaryInt("DT_SIZE", 1, positive),
+                            BinaryInt("NUMBER_FRAMES", 4, positive),
+                            BinaryInt("NUMBER_DT", 4, nonnegative),
+                            TimeDeltas(name="time_deltas"),
+                        ],
+                    ),
                 ),
-            },
+            ],
         ),
     ],
 )

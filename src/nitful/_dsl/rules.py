@@ -130,7 +130,7 @@ from abc import ABC, abstractmethod
 from collections import ChainMap, deque
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import KW_ONLY, dataclass, field, fields
+from dataclasses import KW_ONLY, InitVar, dataclass, field, fields
 from dataclasses import Field as DataclassField
 from datetime import UTC, date, datetime, timezone
 from decimal import Decimal
@@ -194,7 +194,7 @@ class Context(ABC):
         self.indices: list[int] = []
 
         # Current path from the root to the node, (node, indices).
-        self.path: list[tuple[BaseRule[Any], tuple[int, ...]]] = []
+        self.path: list[tuple[Rule[Any], tuple[int, ...]]] = []
 
     def __getitem__(self, key: str) -> Any:
         return self._contexts[key]
@@ -320,35 +320,14 @@ class EmitContext(Context):
         )
 
 
-class Rule[T](Protocol):
+@dataclass
+class Rule[T](ABC):
     """A rule for encoding and decoding NITF data.
 
-    Instances of this class describe how to read binary data into Python
-    objects, and how to serialize Python objects back into binary `Item`
-    objects. They generate `Item` objects rather than writing binary output
-    because it's useful to manipulate/examine the fields before output.
-    """
-
-    name: str
-
-    def parse(self, fd: BinaryIO, ctx: ParseContext) -> T: ...
-    def to_fields(self, value: T, ctx: EmitContext) -> list[Item]: ...
-
-
-class MatchableRule[T](Rule[T], Protocol):
-    """A Rule that defines a `matches` method, so you can ask it about type.
-
-    Currently only used by `Variant`, which routes on _type_ rather than on
-    _name_; this protocol verifies the existence of the `matches` method used
-    to effect that.
-    """
-
-    def matches(self, value: Any) -> TypeGuard[T]: ...
-
-
-@dataclass
-class BaseRule[T](ABC):
-    """Default behavior for Rule classes.
+    Rule classes describe how to read binary data into Python objects, and how
+    to serialize Python objects back into binary `Item` objects. They generate
+    `Item` objects rather than directly writing binary output because it's
+    useful to manipulate/examine the fields before output.
 
     Child classes only need to define:
 
@@ -423,7 +402,7 @@ class BaseRule[T](ABC):
 
 
 @dataclass
-class Field[T](BaseRule[T], ABC):
+class Field[T](Rule[T], ABC):
     """A description of a single NITF field.
 
     These are the "leaves" of our syntax tree: they are responsible for actual
@@ -476,7 +455,7 @@ class Field[T](BaseRule[T], ABC):
 
 
 @dataclass
-class Combinator[T](BaseRule[T], ABC):
+class Combinator[T](Rule[T], ABC):
     """A rule for one or more NITF fields.
 
     These are the "branches" of our syntax tree. They structure the `Field`
@@ -1170,7 +1149,7 @@ class DataclassProtocol(Protocol):
 
 
 @dataclass
-class Struct[T: DataclassProtocol](Combinator[T], MatchableRule[T]):
+class Struct[T: DataclassProtocol](Combinator[T]):
     """A structural node that routes child values to/from a dataclass.
 
     For a high-level overview of how `Struct` bridges the AST and Python
@@ -1231,51 +1210,98 @@ class Struct[T: DataclassProtocol](Combinator[T], MatchableRule[T]):
 
         return out_fields
 
-    @override
-    def matches(self, value: object) -> TypeGuard[T]:
-        """Check if a Python object belongs to this record's dataclass."""
-        return isinstance(value, self.model_cls)
+
+type _Condition = type | tuple[type, ...] | Callable[[Any, EmitContext], bool]
+
+
+@dataclass(frozen=True)
+class Case[TagType, ValueType]:
+    """One option for a Variant.
+
+    Args:
+        tag: the tag value for this option.
+        condition: how to select this option during serialization, either by
+            matching the value to a type, or with a predicate.
+        rule: a rule to produce the value for this option.
+    """
+
+    tag: TagType
+    condition: _Condition
+    rule: Rule[ValueType]
 
 
 @dataclass
 class Variant[TagType, ValueType](Combinator[ValueType]):
-    """A discriminated union of rules.
+    """A discriminated union.
 
-    The leading field is a tag that determines the form of the following
-    fields.
+    The first field is a tag that determines the form of the following fields.
+    During parsing, `Variant` simply reads the tag, then parses using the
+    `rule` from the `Case` with the matching tag.
+
+    During serialization, `Variant` determines which `Case` to use by checking
+    their `condition` fields. Most commonly `condition` is a type or list of
+    types, and the `Case` is used if the value matches the given types. The
+    condition can be also be a predicate that evaluates the value and the
+    `EmitContext`.
+
+    Args:
+        tag_rule: The rule used to read/write the tag from/to the stream.
+        cases: An iterable of `Case` objects defining the union.
     """
 
     tag_rule: Field[TagType]
-    cases: dict[TagType, MatchableRule[ValueType]]
+
+    cases: InitVar[Iterable[Case[TagType, Any]]]
+
+    _rule_for_tag: dict[TagType, Rule[Any]] = field(init=False)
+    _conditions: list[tuple[TagType, _Condition]] = field(init=False)
+
+    def __post_init__(self, branches: Iterable[Case[TagType, Any]]) -> None:
+        self._rule_for_tag = {}
+        self._conditions = []
+
+        for branch in branches:
+            if branch.tag in self._rule_for_tag:
+                msg = f"Duplicate tag {branch.tag!r} in Variant branches."
+                raise ValueError(msg)
+
+            self._rule_for_tag[branch.tag] = branch.rule
+            self._conditions.append((branch.tag, branch.condition))
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> ValueType:
         tag = self.tag_rule.parse(fd, ctx)
 
-        if tag not in self.cases:
-            msg = f"Unrecognized tag {tag!r} in Variant '{self.name}'"
+        if tag not in self._rule_for_tag:
+            msg = f"Unrecognized tag {tag!r}"
             raise ValueError(msg)
 
-        parser = self.cases[tag]
-        return parser.parse(fd, ctx)
+        return cast(ValueType, self._rule_for_tag[tag].parse(fd, ctx))
 
     @override
     def _emit(self, value: ValueType, *, ctx: EmitContext) -> list[Item]:
         tag_to_write = None
 
-        for tag, rule in self.cases.items():
-            if rule.matches(value):
+        for tag, condition in self._conditions:
+            if isinstance(condition, type):
+                if type(value) is condition:
+                    tag_to_write = tag
+                    break
+            elif isinstance(condition, tuple):
+                if type(value) in condition:
+                    tag_to_write = tag
+                    break
+            elif callable(condition) and condition(value, ctx):
                 tag_to_write = tag
                 break
 
         if tag_to_write is None:
             cname = type(value).__name__
-            msg = f"Unexpected class {cname} for Variant '{self.name}'"
+            msg = f"Cannot map {cname} to a Variant branch."
             raise TypeError(msg)
 
-        rule_to_use = self.cases[tag_to_write]
         fields = self.tag_rule.to_fields(tag_to_write, ctx)
-        fields.extend(rule_to_use.to_fields(value, ctx))
+        fields.extend(self._rule_for_tag[tag_to_write].to_fields(value, ctx))
 
         return fields
 
@@ -1351,44 +1377,43 @@ class SizedBlock(Combinator[Any]):
 
 
 @dataclass
-class Switch[TagType, T](Combinator[T], MatchableRule[T]):
-    """Branches parsing logic based on a previously evaluated context value."""
+class Switch[TagType, ValueType](Combinator[ValueType]):
+    """Branches parsing logic based on a previously evaluated context value.
 
-    get_tag: Callable[[ParseContext], TagType]
-    cases: dict[TagType, MatchableRule[T]]
+    This differs from `Variant` by:
+
+    - not requiring that the discriminating value be a Field at the beginning
+      of the block of Rules, and
+    - requiring that the value be present in the model, rather than inferring
+      it from the type of the value.
+    """
+
+    get_tag: Callable[[Context], TagType]
+    cases: dict[TagType, Rule[ValueType]]
 
     @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> ValueType:
         tag = self.get_tag(ctx)
 
         if tag not in self.cases:
-            msg = f"Unrecognized tag {tag!r} for Switch '{self.name}'."
+            msg = f"Unrecognized tag {tag!r} for Switch."
             raise ValueError(msg)
 
         return self.cases[tag].parse(fd, ctx)
 
     @override
-    def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]:
-        tag_to_write = None
+    def _emit(self, value: ValueType, *, ctx: EmitContext) -> list[Item]:
+        tag = self.get_tag(ctx)
 
-        for tag, rule in self.cases.items():
-            if rule.matches(value):
-                tag_to_write = tag
-                break
-
-        if tag_to_write is None or tag_to_write not in self.cases:
-            msg = f"Cannot map payload {value!r} to a Switch branch."
+        if tag not in self.cases:
+            msg = f"Unrecognized tag {tag!r} for Switch."
             raise ValueError(msg)
 
-        return self.cases[tag_to_write].to_fields(value, ctx)
-
-    @override
-    def matches(self, value: object) -> TypeGuard[T]:
-        return any(rule.matches(value) for rule in self.cases.values())
+        return self.cases[tag].to_fields(value, ctx)
 
 
 @dataclass
-class Alias[T](BaseRule[T]):
+class Alias[T](Rule[T]):
     """Wraps a rule to change its routing name in the AST.
 
     Allows you to assign a rule with a given name to a different attribute.
@@ -1561,7 +1586,7 @@ class ReservedExtensions(Combinator[Any]):
 
 
 @dataclass
-class RuleNotImplemented(BaseRule[None]):
+class RuleNotImplemented(Rule[None]):
 
     name: str = ""
 
