@@ -5,6 +5,7 @@ from . import (
     cscsdb,
     csephb,
     csexrb,
+    cssfab,
     ichipb,
     rpc00b,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "cscsdb",
     "csephb",
     "csexrb",
+    "cssfab",
     "ichipb",
     "rpc00b",
 ]

@@ -4,6 +4,7 @@ from . import (
     cscsdb,
     csephb,
     csexrb,
+    cssfab,
     ichipb,
     rpc00b,
 )
