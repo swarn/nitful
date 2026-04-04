@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 from nitful import ParseError, SerializeError, load, write
-from nitful._dsl.rules import Item
 from nitful._format.file import to_fields
+from nitful.dsl.rules import Item
 
 TEST_DATA_DIR = Path(__file__).parent / "data"
 TEST_FILES = list(TEST_DATA_DIR.rglob("*.ntf"))
@@ -55,7 +55,7 @@ def test_full_nitf_roundtrip(filepath: Path) -> None:
             )
             pytest.fail(msg)
 
-    final_field = offset_to_field.get(len(new_bytes)-1, "UNKNOWN")
+    final_field = offset_to_field.get(len(new_bytes) - 1, "UNKNOWN")
     assert len(original_bytes) == len(new_bytes), (
         f"Length mismatch: Original is {len(original_bytes)} bytes, "
         f"New is {len(new_bytes)} bytes, "

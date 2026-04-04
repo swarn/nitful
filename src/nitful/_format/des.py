@@ -1,6 +1,8 @@
 from typing import BinaryIO, cast
 
-from nitful._dsl.rules import (
+from nitful.core.common import DES, UnknownDES
+from nitful.core.errors import ParseError
+from nitful.dsl.rules import (
     BcsString,
     Constant,
     EmitContext,
@@ -8,11 +10,9 @@ from nitful._dsl.rules import (
     Int,
     Item,
     ParseContext,
-    Segment,
 )
-from nitful._format.security import security_len, security_spec
-from nitful.core.common import DES, UnknownDES
-from nitful.core.errors import ParseError
+
+from .shared import Segment, security_len, security_spec
 
 des_read_registry: dict[tuple[str, int], Segment[DES]] = {}
 des_write_registry: dict[type[DES], Segment[DES]] = {}

@@ -1,11 +1,11 @@
 from pathlib import Path
 from typing import BinaryIO
 
-from ._dsl.io import dump_fields as _dump_fields
-from ._dsl.io import write_fields as _write_fields
 from ._format.file import read_file as _read_format
 from ._format.file import to_fields as _to_fields
 from .core.file import NitfFile
+from .dsl.io import dump_fields as _dump_fields
+from .dsl.io import write_fields as _write_fields
 
 
 def read(fd: BinaryIO) -> NitfFile:

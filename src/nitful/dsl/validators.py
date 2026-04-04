@@ -14,11 +14,10 @@ serializing.
   a four-digit integer is <= 9999.
 """
 
-# ruff: noqa: N801
-
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Protocol, override
+from functools import cache
+from typing import Any, Protocol
 
 type NumericT = int | float | Decimal
 
@@ -42,7 +41,7 @@ class Comparable(Protocol):
 
 
 @dataclass
-class in_range[T: Comparable]:
+class _InRange[T: Comparable]:
     min_val: T
     max_val: T
 
@@ -50,19 +49,28 @@ class in_range[T: Comparable]:
         return self.min_val <= val <= self.max_val
 
 
-class one_of[T]:
-    options: tuple[T, ...]
+# The factory functions here aren't strictly necessary, but they provide a few
+# minor benefits: we can use consistent lowercase for validators without
+# linters complaining about PEP 8, and we can cache and reuse identical
+# validators.
 
-    def __init__(self, *options: T) -> None:
-        self.options = options
+
+@cache
+def in_range[T: Comparable](min_val: T, max_val: T) -> _InRange[T]:
+    return _InRange(min_val, max_val)
+
+
+@dataclass
+class _OneOf[T]:
+    options: tuple[T, ...]
 
     def __call__(self, val: T) -> bool:
         return val in self.options
 
-    @override
-    def __repr__(self) -> str:
-        args = ", ".join(repr(opt) for opt in self.options)
-        return f"one_of({args})"
+
+@cache
+def one_of[T](*options: T) -> _OneOf[T]:
+    return _OneOf(options)
 
 
 def notblank(val: str) -> bool:

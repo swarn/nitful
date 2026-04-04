@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import BinaryIO, override
 
-from nitful._dsl.rules import (
+from nitful._format.shared import ReservedExtensions
+from nitful._format.tre import register_tre
+from nitful.dsl.rules import (
     BcsIntEnum,
     BcsString,
     BcsStringEnum,
@@ -26,7 +28,6 @@ from nitful._dsl.rules import (
     Nothing,
     ParseContext,
     PrefixedList,
-    ReservedExtensions,
     SizedBlock,
     Struct,
     Switch,
@@ -34,8 +35,7 @@ from nitful._dsl.rules import (
     Variant,
     VarString,
 )
-from nitful._dsl.validator import in_range, nonnegative, one_of, positive
-from nitful._format.tre import register_tre
+from nitful.dsl.validators import in_range, nonnegative, one_of, positive
 from nitful.extensions.csexrb import (
     CSEXRB,
     CollectionCriteria,

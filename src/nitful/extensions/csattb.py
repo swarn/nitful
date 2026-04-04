@@ -7,8 +7,7 @@ from datetime import date
 from enum import IntEnum
 from uuid import UUID as UUID_T
 
-from nitful.core.common import DES
-from nitful.core.eci import ECI, ECIv1
+from nitful.core.common import DES, ECI, ECIv1
 
 type Array2D = list[list[float]]
 

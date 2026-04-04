@@ -8,3 +8,7 @@ class ParseError(NitfError):
 
 class SerializeError(NitfError):
     """Base exception for any error encountered while writing a file."""
+
+
+class DefinitionError(NitfError):
+    """An error in specification with the DSL."""

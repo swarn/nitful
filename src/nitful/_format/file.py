@@ -4,7 +4,9 @@ from dataclasses import dataclass, fields
 from os import SEEK_CUR
 from typing import BinaryIO
 
-from nitful._dsl.rules import (
+from nitful.core.common import EncryptionLevel
+from nitful.core.file import NitfFile
+from nitful.dsl.rules import (
     BcsIntEnum,
     BcsString,
     ConcatDatetime,
@@ -21,13 +23,11 @@ from nitful._dsl.rules import (
     Struct,
     item_size,
 )
-from nitful._dsl.validator import nonnegative, notblank, one_of
-from nitful.core.common import EncryptionLevel
-from nitful.core.file import NitfFile
+from nitful.dsl.validators import nonnegative, notblank, one_of
 
 from .des import des_to_fields, read_des
 from .image import image_to_fields, read_image_segment
-from .security import security_spec
+from .shared import security_spec
 from .tre import read_tre_list, tre_list_to_fields
 
 

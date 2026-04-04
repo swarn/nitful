@@ -1,4 +1,5 @@
-from nitful._dsl.rules import (
+from nitful._format.tre import register_tre
+from nitful.dsl.rules import (
     BcsIntEnum,
     BcsString,
     Constant,
@@ -6,8 +7,7 @@ from nitful._dsl.rules import (
     Int,
     Struct,
 )
-from nitful._dsl.validator import nonnegative
-from nitful._format.tre import register_tre
+from nitful.dsl.validators import nonnegative
 from nitful.extensions.ichipb import ICHIPB, AnamorphicCorrection, TransformFlag
 
 ichipb_spec = Struct(

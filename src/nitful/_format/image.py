@@ -5,7 +5,17 @@ from io import SEEK_CUR
 from pathlib import Path
 from typing import Any, BinaryIO, ClassVar, override
 
-from nitful._dsl.rules import (
+from nitful.core.common import EncryptionLevel
+from nitful.core.image import (
+    BandInfo,
+    Compression,
+    Coords,
+    DeferredImageData,
+    ImageSegment,
+    PixelJustification,
+    PixelType,
+)
+from nitful.dsl.rules import (
     BcsIntEnum,
     BcsString,
     BcsStringEnum,
@@ -22,19 +32,9 @@ from nitful._dsl.rules import (
     Rule,
     Struct,
 )
-from nitful._dsl.validator import in_range, nonnegative, one_of, positive
-from nitful.core.common import EncryptionLevel
-from nitful.core.image import (
-    BandInfo,
-    Compression,
-    Coords,
-    DeferredImageData,
-    ImageSegment,
-    PixelJustification,
-    PixelType,
-)
+from nitful.dsl.validators import in_range, nonnegative, one_of, positive
 
-from .security import security_spec
+from .shared import security_spec
 from .tre import read_tre_list, tre_list_to_fields
 
 

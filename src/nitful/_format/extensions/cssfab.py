@@ -1,6 +1,8 @@
 from enum import IntEnum, StrEnum
 
-from nitful._dsl.rules import (
+from nitful._format.des import register_des
+from nitful._format.shared import ReservedExtensions, Segment, security_spec
+from nitful.dsl.rules import (
     Alias,
     BcsFloat,
     BcsIntEnum,
@@ -17,8 +19,6 @@ from nitful._dsl.rules import (
     Nothing,
     Override,
     PrefixedList,
-    ReservedExtensions,
-    Segment,
     SizedBlock,
     SizedList,
     Struct,
@@ -27,9 +27,7 @@ from nitful._dsl.rules import (
     Variant,
     Vector,
 )
-from nitful._dsl.validator import in_range, nonnegative, one_of, positive
-from nitful._format.des import register_des
-from nitful._format.security import security_spec
+from nitful.dsl.validators import in_range, nonnegative, one_of, positive
 from nitful.extensions.cssfab import (
     CSSFAB,
     BandCategory,

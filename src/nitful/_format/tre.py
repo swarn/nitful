@@ -1,7 +1,8 @@
 from os import SEEK_CUR
 from typing import BinaryIO, cast
 
-from nitful._dsl.rules import (
+from nitful.core.common import TRE, UnknownTRE
+from nitful.dsl.rules import (
     BcsString,
     EmitContext,
     Int,
@@ -10,7 +11,6 @@ from nitful._dsl.rules import (
     Struct,
     item_size,
 )
-from nitful.core.common import TRE, UnknownTRE
 
 tre_read_registry: dict[str, Struct[TRE]] = {}
 tre_write_registry: dict[type[TRE], Struct[TRE]] = {}

@@ -1,6 +1,9 @@
 from enum import IntEnum
 
-from nitful._dsl.rules import (
+from nitful._format.des import register_des
+from nitful._format.shared import ReservedExtensions, Segment, eci_spec, security_spec
+from nitful.core.common import ECI, ECIv1
+from nitful.dsl.rules import (
     BcsIntEnum,
     BcsString,
     Case,
@@ -11,8 +14,6 @@ from nitful._dsl.rules import (
     IsoDate,
     Override,
     PrefixedList,
-    ReservedExtensions,
-    Segment,
     SizedBlock,
     Struct,
     Switch,
@@ -20,11 +21,7 @@ from nitful._dsl.rules import (
     Variant,
     Vector,
 )
-from nitful._dsl.validator import in_range, nonnegative, one_of, positive
-from nitful._format.des import register_des
-from nitful._format.eci import eci_spec
-from nitful._format.security import security_spec
-from nitful.core.eci import ECI, ECIv1
+from nitful.dsl.validators import in_range, nonnegative, one_of, positive
 from nitful.extensions.csattb import (
     CSATTB,
     ECF,
@@ -113,10 +110,7 @@ csattb = Segment(
                     (ECIv1, ECI),
                     Switch(
                         get_tag=lambda ctx: ctx["DESVER"],
-                        cases={
-                            1: Struct(ECIv1, []),
-                            2: Struct(ECI, eci_spec),
-                        },
+                        cases={1: Struct(ECIv1, []), 2: eci_spec},
                     ),
                 ),
             ],

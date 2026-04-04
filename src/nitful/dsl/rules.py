@@ -149,7 +149,7 @@ from typing import (
 )
 from uuid import UUID
 
-from nitful.core.errors import ParseError, SerializeError
+from nitful.core.errors import DefinitionError, ParseError, SerializeError
 
 
 @dataclass
@@ -430,7 +430,7 @@ class Field[T](Rule[T], ABC):
     def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]:
         if self.validate and not self.validate(value):
             msg = f"Invalid value {value} for '{self.name}'"
-            raise RuntimeError(msg)
+            raise ValueError(msg)
 
         encoded = self.encode(value)
         if len(encoded) != self.size:
@@ -438,7 +438,7 @@ class Field[T](Rule[T], ABC):
                 f"Encoding error in '{self.name}': Expected {self.size} bytes, "
                 f"but got {len(encoded)} bytes (Payload: {encoded!r})"
             )
-            raise RuntimeError(msg)
+            raise ValueError(msg)
 
         full_name = self.name + ctx.format_subscripts()
         ctx.fields.append((full_name, value))
@@ -701,19 +701,20 @@ class BcsFloat(Field[float]):
 
     edigits: int
 
-    @property
-    def precision(self) -> int:
-        prec = self.size - self.edigits - len("±i.E±")
+    _precision: int = field(init=False)
 
-        if prec < 0:
+    def __post_init__(self) -> None:
+        # Where size = len("±i.nnnnnnE±ee"), the number of n digits is
+        # calculated as precision = size - len("ee") - len("±i.E±")
+        self._precision = self.size - self.edigits - 5
+
+        if self._precision < 0:
             msg = f"Size {self.size} is too small for {self.edigits} exp digits."
-            raise ValueError(msg)
-
-        return prec
+            raise DefinitionError(msg)
 
     @override
     def encode(self, decoded: float) -> bytes:
-        raw = format(decoded, f"+.{self.precision}E")
+        raw = format(decoded, f"+.{self._precision}E")
         mantissa, exponent = raw.split("E")
         exp_val = int(exponent)
 
@@ -727,9 +728,10 @@ class BcsFloat(Field[float]):
             )
             raise ValueError(msg)
 
+        # If the value is too small, round it to zero with the same sign.
         if exp_val < min_exp:
             msign = mantissa[0]
-            zero_frac = "0" * self.precision
+            zero_frac = "0" * self._precision
             zero_exp = "0" * self.edigits
             retval = f"{msign}0.{zero_frac}E+{zero_exp}"
         else:
@@ -1027,7 +1029,7 @@ class SizedList[T](Combinator[list[T]]):
 
         if len(value) != count:
             msg = f"Expected {count} items, got {len(value)}"
-            raise RuntimeError(msg)
+            raise ValueError(msg)
 
         fields: list[Item] = []
         for v in ctx.iterate(value):
@@ -1194,9 +1196,10 @@ class Struct[T: DataclassProtocol](Combinator[T]):
 
     @override
     def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]:
-        # Use `vars` here to unpack a single level of the dataclass, rather
-        # than `dataclasses.asdict`, which is recursive.
-        val_dict = vars(value)
+        # Unpack the dataclass into a dict. Don't use `dataclasses.asdict`: it
+        # is recursive, but we want attributes to remain as dataclasses. Don't
+        # use `vars`: it will fail on slotted dataclasses.
+        val_dict = {name: getattr(value, name) for name in self._field_names}
 
         # Route the dataclass attribute `foo` to the rule with name `foo`. Give
         # anonymous rules the entire dict, assuming that they will do their own
@@ -1263,7 +1266,7 @@ class Variant[TagType, ValueType](Combinator[ValueType]):
         for branch in branches:
             if branch.tag in self._rule_for_tag:
                 msg = f"Duplicate tag {branch.tag!r} in Variant branches."
-                raise ValueError(msg)
+                raise DefinitionError(msg)
 
             self._rule_for_tag[branch.tag] = branch.rule
             self._conditions.append((branch.tag, branch.condition))
@@ -1434,166 +1437,3 @@ class Alias[T](Rule[T]):
                 return self.rule.to_fields(value, ctx)
 
         return self.rule.to_fields(value, ctx)
-
-
-@dataclass
-class Segment[T: DataclassProtocol](Struct[T]):
-    """Splits a dataclass into header and data fields.
-
-    NITF measures the length of the segment subheader and segment data
-    separately.
-    """
-
-    model_cls: type[T]
-    subheader: list[Rule[Any]]
-    data: list[Rule[Any]]
-
-    rules: Sequence[Rule[Any]] = field(init=False)
-
-    def __post_init__(self) -> None:
-        # Collect the subheader and data rules into `self.rules` so the
-        # `Struct` logic works unchanged.
-        self.rules = self.subheader + self.data
-
-    def emit_segment(self, value: T, ctx: EmitContext) -> tuple[list[Item], list[Item]]:
-        """As _emit, but return the fields split into subheader and data fields."""
-        val_dict = vars(value)
-
-        with ctx.scope(val_dict):
-            sub_fields: list[Item] = []
-            for rule in self.subheader:
-                child_val = val_dict.get(rule.name) if rule.name else val_dict
-                sub_fields.extend(rule.to_fields(child_val, ctx))
-
-            data_fields: list[Item] = []
-            for rule in self.data:
-                child_val = val_dict.get(rule.name) if rule.name else val_dict
-                data_fields.extend(rule.to_fields(child_val, ctx))
-
-            return sub_fields, data_fields
-
-
-@dataclass
-class ReservedExtensions(Combinator[Any]):
-    """A transparent block for dynamic Reserved Field Areas (e.g., CSCSDB).
-
-    Reads the global reserved length, the mask length, the boolean mask,
-    and then selectively reads the payload for each active area.
-    Unrecognized areas are preserved as raw bytes to allow round-tripping.
-
-    Each Rule in cases must have a name. When parsing, if that reserved area is
-    present, it will be assigned to that name, which will otherwise be None.
-    When emitting, a reserved area will be generated for each of the items with
-    non-None values.
-    """
-
-    name: str = field(default="", init=False)
-    size: Rule[int]
-    mask_size: Rule[int]
-
-    # Maps a **1-based** area index to a `Rule`.
-    cases: dict[int, Rule[Any]]
-
-    # Unknown Reserved Field Areas can be parsed as raw bytes and stored for
-    # correct round-tripping. `unknown_name` will be the name for the unknown
-    # fields, stored as a dict[int, bytes].
-    unknown_name: str = "unknown_extensions"
-
-    def __post_init__(self) -> None:
-        for i, rule in self.cases.items():
-            if not rule.name:
-                msg = f"Area rules must have a 'name', but area {i} does not."
-                raise ValueError(msg)
-
-    @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> None:
-        total_len = self.size.parse(fd, ctx)
-
-        # Initialize all defined areas to None in the parent scope.
-        for rule in self.cases.values():
-            if rule.name:
-                ctx[rule.name] = None
-
-        # Initialize the unknown entries.
-        ctx[self.unknown_name] = {}
-
-        if total_len == 0:
-            return
-
-        mask_len = self.mask_size.parse(fd, ctx)
-        mask = BcsString("RESERVED_FIELD_MASK", mask_len).parse(fd, ctx)
-
-        unknowns: dict[int, bytes] = {}
-
-        for i in range(1, mask_len + 1):
-            if mask[i - 1] == "0":
-                continue
-
-            if i not in self.cases:
-                area_len = Int(f"RESERVED_LEN_AREA{i}", 9).parse(fd, ctx)
-                unknowns[i] = fd.read(area_len)
-                continue
-
-            rule = self.cases[i]
-            SizedBlock(Int(f"RESERVED_LEN_AREA{i}", 9), [rule]).parse(fd, ctx)
-
-        ctx[self.unknown_name] = unknowns
-        return
-
-    @override
-    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Item]:
-        unknowns: dict[int, bytes] = value.get(self.unknown_name) or {}
-
-        active_indices = set(unknowns.keys())
-        for i, rule in self.cases.items():
-            if rule.name and value.get(rule.name) is not None:
-                active_indices.add(i)
-
-        if not active_indices:
-            return self.size.to_fields(0, ctx)
-
-        mask_len = max(active_indices)
-        mask_chars: list[str] = []
-        area_fields: list[Item] = []
-
-        for i in range(1, mask_len + 1):
-            if i not in active_indices:
-                mask_chars.append("0")
-                continue
-
-            mask_chars.append("1")
-
-            if i in unknowns:
-                payload_bytes = unknowns[i]
-                size = len(payload_bytes)
-                alen_field = Int(f"RESERVED_LEN_AREA{i}", 9).to_fields(size, ctx=ctx)
-                area_fields.extend(alen_field)
-                area_fields.append(Item(f"RESERVED_AREA_{i}_DATA", payload_bytes))
-            else:
-                rule = self.cases[i]
-                block = SizedBlock(Int(f"RESERVED_LEN_AREA{i}", 9), body=[rule])
-                area_fields.extend(block.to_fields(value, ctx))
-
-        mask_str = "".join(mask_chars)
-        mlen_field = self.mask_size.to_fields(mask_len, ctx)
-        mask_field = BcsString("RESERVED_FIELD_MASK", mask_len).to_fields(mask_str, ctx)
-        header_fields = [*mlen_field, *mask_field]
-
-        total_len = item_size(header_fields) + item_size(area_fields)
-        rfa_len_field = self.size.to_fields(total_len, ctx)
-
-        return [*rfa_len_field, *header_fields, *area_fields]
-
-
-@dataclass
-class RuleNotImplemented(Rule[None]):
-
-    name: str = ""
-
-    @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> None:
-        raise NotImplementedError
-
-    @override
-    def _emit(self, value: None, *, ctx: EmitContext) -> list[Item]:
-        raise NotImplementedError

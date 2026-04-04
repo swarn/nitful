@@ -1,4 +1,5 @@
-from nitful._dsl.rules import (
+from nitful._format.tre import register_tre
+from nitful.dsl.rules import (
     BcsFloat,
     BcsString,
     Constant,
@@ -7,8 +8,7 @@ from nitful._dsl.rules import (
     SizedList,
     Struct,
 )
-from nitful._dsl.validator import nonnegative, nonzero, positive
-from nitful._format.tre import register_tre
+from nitful.dsl.validators import nonnegative, nonzero, positive
 from nitful.extensions.rpc00b import RPC00B
 
 rpc00b_spec = Struct(
