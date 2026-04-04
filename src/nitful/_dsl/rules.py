@@ -47,7 +47,8 @@ depends on earlier fields. To support this, the AST evaluation passes a shared
 
 In addition to the symbol table, the Context bundles various other impure
 side-effects during evaluation: it tracks byte offset during parsing and
-serialization, as well as history of reads/writes used for error reporting.
+serialization, the path from the AST root to the current node, as well as a
+history of reads/writes used for error reporting.
 
 
 ## Names and structure (`name`)
@@ -150,10 +151,14 @@ class Context:
         self._contexts: ChainMap[str, Any] = ChainMap(init or {})
 
         # Stacked indices for tracking position inside lists.
-        self._indices: list[int] = []
+        self.indices: list[int] = []
 
-        # Recently-processed fields, to add context to error messages.
-        self._recent_fields: deque[tuple[int, str, Any]] = deque(maxlen=5)
+        # Recently-processed fields (byte offset, name, value), to add context
+        # to error messages.
+        self.fields: deque[tuple[int, str, Any]] = deque(maxlen=5)
+
+        # Current path from the root to the node, (node, indices).
+        self.path: list[tuple[BaseRule[Any], tuple[int, ...]]] = []
 
     def __getitem__(self, key: str) -> Any:
         return self._contexts[key]
@@ -178,46 +183,54 @@ class Context:
         finally:
             self._contexts.maps.pop(0)
 
-    @property
-    def local_scope(self) -> dict[str, Any]:
-        return cast(dict[str, Any], self._contexts.maps[0])
-
     def iterate[V](self, iterable: Iterable[V]) -> Iterator[V]:
         """Iterate over a sequence while tracking the index for error paths.
 
-        Using this instead of a standard loop allows the context to track
-        repeated child rules, so that `ctx.subscripts` can accurately show
-        indices like `[0][2]` during exceptions.
+        Using this allows the context to track repeated child rules, so that
+        `ctx.subscripts` can accurately show indices like `[0][2]` during
+        exceptions and string dumps.
         """
-        self._indices.append(0)
+        self.indices.append(0)
 
         try:
             for i, val in enumerate(iterable):
-                self._indices[-1] = i
+                self.indices[-1] = i
                 yield val
         finally:
-            self._indices.pop()
+            self.indices.pop()
 
-    @property
-    def subscripts(self) -> str:
-        """Get a string with the current indices, e.g. [2][0]."""
-        if not self._indices:
+    def format_subscripts(self) -> str:
+        """Get a string with the current indices, e.g. '[2][0]'."""
+        if not self.indices:
             return ""
 
-        return "".join(f"[{i}]" for i in self._indices)
+        return "".join(f"[{i}]" for i in self.indices)
 
-    def log_field(self, offset: int, name: str, value: Any) -> None:
-        self._recent_fields.append((offset, name, value))
-
-    @property
-    def recent_fields(self) -> str:
+    def format_fields(self) -> str:
         """Get a string with the most recently processed fields."""
-        if not self._recent_fields:
-            return ""
-
         return "\n".join(
-            f"  [{off}] {name}: {val!r}" for off, name, val in self._recent_fields
+            f"  [{off} (0x{off:04X})] {name}: {val!r}" for off, name, val in self.fields
         )
+
+    def format_error(self, action: str, base_msg: str, offset: int) -> str:
+        """Get a error message desribing parsing/serialization state."""
+        path_strs: list[str] = []
+        for node, indices in self.path:
+            sub_str = "".join(f"[{i}]" for i in indices) if indices else ""
+            path_strs.append(node.display_name() + sub_str)
+
+        path_str = "\n  -> ".join(path_strs)
+
+        msg = (
+            f"Error {action} at byte [{offset}]"
+            f"\n\nCause: {base_msg}"
+            f"\n\nWhere:\n  {path_str}"
+        )
+
+        if self.fields:
+            msg += f"\n\nRecent fields:\n{self.format_fields()}"
+
+        return msg
 
 
 class ParseContext(Context):
@@ -289,39 +302,35 @@ class BaseRule[T](ABC):
     @final
     def parse(self, fd: BinaryIO, ctx: ParseContext) -> T:
         start_offset = fd.tell()
-        trace_name = self.display_name() + ctx.subscripts
+        ctx.path.append((self, tuple(ctx.indices)))
 
         try:
             val = self._read(fd, ctx)
+        except ParseError:
+            raise
+        except Exception as e:
+            msg = ctx.format_error("parsing", str(e), start_offset)
+            raise ParseError(msg) from e
+        else:
             if self.name:
                 ctx[self.name] = val
-        except ParseError as e:
-            e.path.insert(0, trace_name)
-            raise ParseError(
-                e.base_msg, e.path, e.offset, ctx.recent_fields
-            ) from e.__cause__
-        except Exception as e:
-            raise ParseError(
-                str(e), [trace_name], start_offset, ctx.recent_fields
-            ) from e
-        else:
             return val
+        finally:
+            ctx.path.pop()
 
     @final
     def to_fields(self, value: T, ctx: EmitContext) -> list[Item]:
-        trace_name = self.display_name() + ctx.subscripts
+        ctx.path.append((self, tuple(ctx.indices)))
 
         try:
             return self._emit(value, ctx=ctx)
-        except SerializeError as e:
-            e.path.insert(0, trace_name)
-            raise SerializeError(
-                e.base_msg, e.path, e.offset, ctx.recent_fields
-            ) from e.__cause__
+        except SerializeError:
+            raise
         except Exception as e:
-            raise SerializeError(
-                str(e), [trace_name], ctx.current_offset, ctx.recent_fields
-            ) from e
+            msg = ctx.format_error("serializing", str(e), ctx.current_offset)
+            raise SerializeError(msg) from e
+        finally:
+            ctx.path.pop()
 
     def display_name(self) -> str:
         """Used only for displaying the name in errors."""
@@ -372,7 +381,7 @@ class Field[T](BaseRule[T], ABC):
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
         start = fd.tell()
         val = self.decode(fd.read(self.size))
-        ctx.log_field(start, self.name + ctx.subscripts, val)
+        ctx.fields.append((start, self.name + ctx.format_subscripts(), val))
         return val
 
     @override
@@ -389,10 +398,10 @@ class Field[T](BaseRule[T], ABC):
             )
             raise RuntimeError(msg)
 
-        ctx.log_field(ctx.current_offset, self.name + ctx.subscripts, value)
+        full_name = self.name + ctx.format_subscripts()
+        ctx.fields.append((ctx.current_offset, full_name, value))
         ctx.current_offset += self.size
 
-        full_name = self.name + ctx.subscripts
         return [Item(full_name, encoded)]
 
     @abstractmethod
@@ -874,7 +883,7 @@ class Override[T, V](Combinator[T | V]):
     def _emit(self, value: T | V, *, ctx: EmitContext) -> list[Item]:
         for o_bytes, o_value in self.mapping.items():
             if value == o_value:
-                return [Item(self.rule.name + ctx.subscripts, o_bytes)]
+                return [Item(self.rule.name + ctx.format_subscripts(), o_bytes)]
 
         # No overrides matched, use the default rule.
         return self.rule.to_fields(cast(T, value), ctx)
@@ -1079,7 +1088,7 @@ class Conditional[T](Combinator[T | None]):
             return []
 
         if value is None:
-            msg = f"{self.display_name()} is True, but no value was provided."
+            msg = "Condition evaluated to True, but no value was provided."
             raise ValueError(msg)
 
         return self.body.to_fields(value, ctx)
@@ -1265,7 +1274,7 @@ class Switch[TagType, T](Combinator[T], MatchableRule[T]):
                 break
 
         if tag_to_write is None or tag_to_write not in self.cases:
-            msg = f"Cannot map payload {value!r} to a Switch branch in '{self.name}'."
+            msg = f"Cannot map payload {value!r} to a Switch branch."
             raise ValueError(msg)
 
         return self.cases[tag_to_write].to_fields(value, ctx)

@@ -12,6 +12,7 @@ from nitful._dsl.rules import (
 )
 from nitful._format.security import security_len, security_spec
 from nitful.core.common import DES, UnknownDES
+from nitful.core.errors import ParseError
 
 des_read_registry: dict[tuple[str, int], Segment[DES]] = {}
 des_write_registry: dict[type[DES], Segment[DES]] = {}
@@ -49,13 +50,13 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int, ctx: ParseContext) ->
     first = fd.read(peek_len)
     if len(first) != peek_len:
         msg = "Unexpected EOF while reading DES header."
-        raise RuntimeError(msg)
+        raise ParseError(msg)
 
     fd.seek(start_pos)
 
     if first[:2].decode() != "DE":
         msg = "Expected DES, but first characters were not 'DE'"
-        raise RuntimeError(msg)
+        raise ParseError(msg)
 
     desid = first[2:27].decode().strip()
     desver = int(first[27:29].decode())
@@ -68,13 +69,32 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int, ctx: ParseContext) ->
         des = unknown_spec.parse(fd, ctx)
 
     end_pos = fd.tell()
-    net_bytes = end_pos - start_pos
-    if net_bytes != header_len + data_len:
+    n_bytes_read = end_pos - start_pos
+    n_bytes_expected = header_len + data_len
+
+    if n_bytes_read != n_bytes_expected:
+        last_n = min(40, n_bytes_read)
+        fd.seek(end_pos - last_n)
+        last_bytes = fd.read(last_n)
+
         msg = (
-            f"DES byte mismatch for {desid} v{desver}. "
-            f"Expected {header_len + data_len}, but consumed {net_bytes}."
+            f"DES length mismatch for {desid} v{desver}: "
+            f"Expected {header_len + data_len}, but consumed {n_bytes_read}."
+            f"\n\nRecent fields:\n{ctx.format_fields()}"
+            f"\n\nLast {last_n} bytes: {last_bytes!r}"
         )
-        raise RuntimeError(msg)
+
+        if n_bytes_read < n_bytes_expected:
+            unread_n = n_bytes_expected - n_bytes_read
+            unread_bytes = fd.read(unread_n)
+            msg += f"\n\nUnread {unread_n} bytes: {unread_bytes!r}"
+        else:
+            extra_n = n_bytes_read - n_bytes_expected
+            fd.seek(end_pos - extra_n)
+            extra_bytes = fd.read(extra_n)
+            msg += f"\n\nExtra {extra_n} bytes: {extra_bytes!r}"
+
+        raise ParseError(msg)
 
     return des
 
