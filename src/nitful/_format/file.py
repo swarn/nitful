@@ -21,7 +21,7 @@ from nitful._dsl.rules import (
     Struct,
     item_size,
 )
-from nitful._dsl.validator import Literals, NonNegative, NotBlank
+from nitful._dsl.validator import nonnegative, notblank, one_of
 from nitful.core.common import EncryptionLevel
 from nitful.core.file import NitfFile
 
@@ -64,21 +64,21 @@ class ReservedSegmentInfo:
 header_spec = Group(
     name="file header",
     rules=[
-        BcsString("FHDR", 4, Literals(["NITF", "NSIF"])),
-        BcsString("FVER", 5, Literals(["01.01", "02.10"])),
-        Int("CLEVEL", 2, Literals([3, 5, 6, 7, 9, 51, 54, 57])),
-        BcsString("STYPE", 4, Literals(["BF01"])),
-        BcsString("OSTAID", 10, NotBlank()),
+        BcsString("FHDR", 4, one_of("NITF", "NSIF")),
+        BcsString("FVER", 5, one_of("01.01", "02.10")),
+        Int("CLEVEL", 2, one_of(3, 5, 6, 7, 9, 51, 54, 57)),
+        BcsString("STYPE", 4, one_of("BF01")),
+        BcsString("OSTAID", 10, notblank),
         ConcatDatetime("FDT"),
         EcsString("FTITLE", 80),
         security_spec,
-        Int("FSCOP", 5, NonNegative()),
-        Int("FSCPYS", 5, NonNegative()),
+        Int("FSCOP", 5, nonnegative),
+        Int("FSCPYS", 5, nonnegative),
         BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
         Mapped(
             FixedBytes("FBKGC", 3),
             encoder=lambda v: bytes(v),
-            decoder=lambda b: (b[0], b[1], b[2])
+            decoder=lambda b: (b[0], b[1], b[2]),
         ),
         EcsString("ONAME", 24),
         EcsString("OPHONE", 18),

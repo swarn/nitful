@@ -27,7 +27,7 @@ from nitful._dsl.rules import (
     Variant,
     Vector,
 )
-from nitful._dsl.validator import NonNegative, Positive, Range
+from nitful._dsl.validator import in_range, nonnegative, positive
 from nitful._format.des import register_des
 from nitful._format.security import security_spec
 from nitful.extensions.cscsdb import (
@@ -76,14 +76,14 @@ def num_covar_elems(name: str) -> Callable[[Context], int]:
 
 
 direct_cover: Variant[int, DirectCovariance] = Variant(
-    tag_rule=Int("DC_TYPE", 1, Range(0, 9)),
+    tag_rule=Int("DC_TYPE", 1, in_range(0, 9)),
     cases={
         0: Struct(
             DirectCovariance0,
             [
                 PrefixedList(
                     name="adjustments",
-                    count=Int("NUM_PARA", 4, Positive()),
+                    count=Int("NUM_PARA", 4, positive),
                     body=BcsFloat("ADJ", 21, edigits=2),
                 ),
                 SizedList(
@@ -100,10 +100,10 @@ direct_cover: Variant[int, DirectCovariance] = Variant(
 csm_four_param = Struct(
     CsmFourParam,
     [
-        Fixed("FP_A", 8, Range(0.000001, 1.0), ndigits=6),
-        Fixed("FP_ALPHA", 8, Range(0.0, 1.0), ndigits=6),
-        Fixed("FP_BETA", 9, Range(0.0, 10.0), ndigits=6),
-        BcsFloat("FP_T", 21, Range(1e-06, 9.99999999999999e99), edigits=2),
+        Fixed("FP_A", 8, in_range(0.000001, 1.0), ndigits=6),
+        Fixed("FP_ALPHA", 8, in_range(0.0, 1.0), ndigits=6),
+        Fixed("FP_BETA", 9, in_range(0.0, 10.0), ndigits=6),
+        BcsFloat("FP_T", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
     ],
 )
 
@@ -113,17 +113,12 @@ piecewise_linear = Struct(
     [
         PrefixedList(
             name="segments",
-            count=Int("NUM_SEGS", 2, Range(2, 10)),
+            count=Int("NUM_SEGS", 2, in_range(2, 10)),
             body=Struct(
                 PlSegment,
                 [
-                    Fixed("PL_MAX_COR", 8, Range(0.0, 1.0), ndigits=6),
-                    BcsFloat(
-                        "PL_TAU_MAX_COR",
-                        21,
-                        Range(0, 9.99999999999999e99),
-                        edigits=2,
-                    ),
+                    Fixed("PL_MAX_COR", 8, in_range(0.0, 1.0), ndigits=6),
+                    BcsFloat("PL_TAU_MAX_COR", 21, nonnegative, edigits=2),
                 ],
             ),
         )
@@ -134,9 +129,9 @@ piecewise_linear = Struct(
 damped_cosine = Struct(
     DampedCosine,
     [
-        Fixed("DC_A", 8, Range(0.000001, 1.0), ndigits=6),
-        BcsFloat("DC_T", 21, Range(1e-06, 9.99999999999999e99), edigits=2),
-        BcsFloat("DC_P", 21, Range(1e-06, 9.99999999999999e99), edigits=2),
+        Fixed("DC_A", 8, in_range(0.000001, 1.0), ndigits=6),
+        BcsFloat("DC_T", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
+        BcsFloat("DC_P", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
     ],
 )
 
@@ -161,10 +156,10 @@ def get_spdcf_fam(ctx: Context) -> SpdcfFamily:
 spdcf = Struct(
     Spdcf,
     [
-        Int("SPDCF_ID", 2, Positive()),
+        Int("SPDCF_ID", 2, positive),
         PrefixedList(
             name="constituents",
-            count=Int("SPDCF_P", 2, Positive()),
+            count=Int("SPDCF_P", 2, positive),
             body=Struct(
                 ConstituentSpdcf,
                 [
@@ -172,7 +167,7 @@ spdcf = Struct(
                         BcsIntEnum("SPDCF_FAM", 1, enum=SpdcfFamily),
                         get_spdcf_fam,
                     ),
-                    Fixed("SPDCF_WEIGHT", 5, Range(0.0, 1.0), ndigits=3),
+                    Fixed("SPDCF_WEIGHT", 5, in_range(0.0, 1.0), ndigits=3),
                     Switch(
                         name="details",
                         get_tag=lambda ctx: ctx["SPDCF_FAM"],
@@ -194,22 +189,22 @@ unmodeled_error = Struct(
     [
         PrefixedArray(
             name="covariances",
-            rows_rule=Int("LINE_DIMENSION", 3, Range(1, 999)),
-            cols_rule=Int("SAMPLE_DIMENSION", 2, Range(1, 99)),
+            rows_rule=Int("LINE_DIMENSION", 3, in_range(1, 999)),
+            cols_rule=Int("SAMPLE_DIMENSION", 2, in_range(1, 99)),
             body=Vector([
                 BcsFloat("URR", 21, edigits=2),
                 BcsFloat("URC", 21, edigits=2),
                 BcsFloat("UCC", 21, edigits=2),
             ]),
         ),
-        Int("LINE_SPDCF", 2, Positive()),
-        Int("SAMPLE_SPDCF", 2, Positive()),
+        Int("LINE_SPDCF", 2, positive),
+        Int("SAMPLE_SPDCF", 2, positive),
     ],
 )
 
 
 ts_calibration: Variant[int, TsCalibration] = Variant(
-    tag_rule=Int("NUM_TS_GRP", 1, Range(1, 5)),
+    tag_rule=Int("NUM_TS_GRP", 1, in_range(1, 5)),
     cases={
         1: Struct(
             TsGroup1,
@@ -219,7 +214,7 @@ ts_calibration: Variant[int, TsCalibration] = Variant(
                 BcsFloat("TSRR", 21, edigits=2),
                 BcsFloat("TSRC", 21, edigits=2),
                 BcsFloat("TSCC", 21, edigits=2),
-                Int("TS_SPDCF", 2, Positive()),
+                Int("TS_SPDCF", 2, positive),
             ],
         ),
         2: Struct(
@@ -228,11 +223,11 @@ ts_calibration: Variant[int, TsCalibration] = Variant(
                 IsoDate("CORR_REF_DATE_TSP"),
                 HMSeconds("CORR_REF_TIME_TSP"),
                 BcsFloat("TS_POS_COV", 21, edigits=2),
-                Int("TS_POS_SPDCF", 2, Positive()),
+                Int("TS_POS_SPDCF", 2, positive),
                 IsoDate("CORR_REF_DATE_TSA"),
                 HMSeconds("CORR_REF_TIME_TSA"),
                 BcsFloat("TS_ATT_COV", 21, edigits=2),
-                Int("TS_ATT_SPDCF", 2, Positive()),
+                Int("TS_ATT_SPDCF", 2, positive),
             ],
         ),
         3: Struct(
@@ -246,7 +241,7 @@ ts_calibration: Variant[int, TsCalibration] = Variant(
                 BcsFloat("TS_ATT_COV", 21, edigits=2),
                 BcsFloat("TS_ATT_FL_COV", 21, edigits=2),
                 BcsFloat("TS_FL_COV", 21, edigits=2),
-                Int("TS_SPDCF", 2, Positive()),
+                Int("TS_SPDCF", 2, positive),
             ],
         ),
         4: Struct(
@@ -257,11 +252,11 @@ ts_calibration: Variant[int, TsCalibration] = Variant(
                 BcsFloat("TS_POS_COV", 21, edigits=2),
                 BcsFloat("TS_POS_ATT_COV", 21, edigits=2),
                 BcsFloat("TS_ATT_COV", 21, edigits=2),
-                Int("TS_PA_SPDCF", 2, Positive()),
+                Int("TS_PA_SPDCF", 2, positive),
                 IsoDate("CORR_REF_DATE_TSFL"),
                 HMSeconds("CORR_REF_TIME_TSFL"),
                 BcsFloat("TS_FL_COV", 21, edigits=2),
-                Int("TS_FL_SPDCF", 2, Positive()),
+                Int("TS_FL_SPDCF", 2, positive),
             ],
         ),
         5: Struct(
@@ -270,15 +265,15 @@ ts_calibration: Variant[int, TsCalibration] = Variant(
                 IsoDate("CORR_REF_DATE_TSP"),
                 HMSeconds("CORR_REF_TIME_TSP"),
                 BcsFloat("TS_POS_COV", 21, edigits=2),
-                Int("TS_POS_SPDCF", 2, Positive()),
+                Int("TS_POS_SPDCF", 2, positive),
                 IsoDate("CORR_REF_DATE_TSA"),
                 HMSeconds("CORR_REF_TIME_TSA"),
                 BcsFloat("TS_ATT_COV", 21, edigits=2),
-                Int("TS_ATT_SPDCF", 2, Positive()),
+                Int("TS_ATT_SPDCF", 2, positive),
                 IsoDate("CORR_REF_DATE_TSFL"),
                 HMSeconds("CORR_REF_TIME_TSFL"),
                 BcsFloat("TS_FL_COV", 21, edigits=2),
-                Int("TS_FL_SPDCF", 2, Positive()),
+                Int("TS_FL_SPDCF", 2, positive),
             ],
         ),
     },
@@ -290,12 +285,12 @@ io_calibration = Struct(
     [
         PrefixedList(
             name="focal_lengths",
-            count=Int("NUM_SETS_CAL_AP", 2, Positive()),
-            body=Fixed("FOCAL_LENGTH_CAL", 11, Range(0.0, 99.99999999), ndigits=8),
+            count=Int("NUM_SETS_CAL_AP", 2, positive),
+            body=Fixed("FOCAL_LENGTH_CAL", 11, in_range(0.0, 99.99999999), ndigits=8),
         ),
         PrefixedList(
             name="groups",
-            count=Int("NCAL_CPG", 2, Positive()),
+            count=Int("NCAL_CPG", 2, positive),
             body=Struct(
                 IoCpg,
                 [
@@ -303,7 +298,7 @@ io_calibration = Struct(
                     HMSeconds("CORR_REF_TIME_IO"),
                     PrefixedList(
                         name="parameters",
-                        count=Int("N1CAL", 2, Range(1, 11)),
+                        count=Int("N1CAL", 2, in_range(1, 11)),
                         body=BcsIntEnum("CAL_AP_ID", 2, enum=CalApId),
                     ),
                     SizedList(
@@ -315,8 +310,8 @@ io_calibration = Struct(
                         ),
                     ),
                     BcsIntEnum("CAL_INTERP", 1, enum=InterpType),
-                    Int("SPDCF_ID_TIME", 2, Positive()),
-                    Int("SPDCF_ID_FL", 2, Positive()),
+                    Int("SPDCF_ID_TIME", 2, positive),
+                    Int("SPDCF_ID_FL", 2, positive),
                 ],
             ),
         ),
@@ -336,9 +331,9 @@ post_sub = Struct(
     PostSub,
     [
         IsoDate("POST_START_DATE"),
-        Fixed("POST_START_TIME", 15, Range(0, 86399.999999999), ndigits=9),
-        Fixed("POST_DT", 13, Range(0, 999.999999999), ndigits=9),
-        Int("NUM_POSTS", 3, Range(2, 999)),
+        Fixed("POST_START_TIME", 15, in_range(0, 86399.999999999), ndigits=9),
+        Fixed("POST_DT", 13, in_range(0, 999.999999999), ndigits=9),
+        Int("NUM_POSTS", 3, in_range(2, 999)),
         Computed(Bool("COMMON_POSTS_COV"), lambda ctx: len(ctx["covar"]) == 1),
         SizedList(
             name="covar",
@@ -353,14 +348,14 @@ post_sub = Struct(
             name="platform_spdcfs",
             condition=Bool("POST_PF_FLAG"),
             body=PrefixedList(
-                Int("NUM_POST_PF", 2, Positive()),
+                Int("NUM_POST_PF", 2, positive),
                 Struct(
                     BasicPayloadSpdcf,
                     [
-                        Int("POST_PF_SPDCF", 2, Positive()),
+                        Int("POST_PF_SPDCF", 2, positive),
                         PrefixedList(
                             name="pairings",
-                            count=Int("NUM_PAIRINGS_POST_PF", 2, Positive()),
+                            count=Int("NUM_PAIRINGS_POST_PF", 2, positive),
                             body=BcsString("POST_PF_SPDCF_SENSOR", 6),
                         ),
                     ],
@@ -371,14 +366,14 @@ post_sub = Struct(
             name="payload_spdcfs",
             condition=Bool("POST_PL_FLAG"),
             body=PrefixedList(
-                Int("NUM_POST_PL", 2, Positive()),
+                Int("NUM_POST_PL", 2, positive),
                 Struct(
                     BasicPayloadSpdcf,
                     [
-                        Int("POST_PL_SPDCF", 2, Positive()),
+                        Int("POST_PL_SPDCF", 2, positive),
                         PrefixedList(
                             name="pairings",
-                            count=Int("NUM_PAIRINGS_POST_PL", 2, Positive()),
+                            count=Int("NUM_PAIRINGS_POST_PL", 2, positive),
                             body=BcsString("POST_PL_SPDCF_SENSOR", 6),
                         ),
                     ],
@@ -391,7 +386,7 @@ post_sub = Struct(
             body=Struct(
                 PostSensorSpdcf,
                 [
-                    Int("POST_SR_SPDCF", 2, Positive()),
+                    Int("POST_SR_SPDCF", 2, positive),
                     Bool("POST_CORR"),
                 ],
             ),
@@ -412,14 +407,14 @@ basic_sub = Struct(
             name="platform_spdcfs",
             condition=Bool("BASIC_PF_FLAG"),
             body=PrefixedList(
-                Int("NUM_BASIC_PF", 2, Positive()),
+                Int("NUM_BASIC_PF", 2, positive),
                 Struct(
                     BasicPayloadSpdcf,
                     [
-                        Int("BASIC_PF_SPDCF", 2, Positive()),
+                        Int("BASIC_PF_SPDCF", 2, positive),
                         PrefixedList(
                             name="pairings",
-                            count=Int("NUM_PAIRINGS_BASIC_PF", 2, Positive()),
+                            count=Int("NUM_PAIRINGS_BASIC_PF", 2, positive),
                             body=BcsString("BASIC_PF_SPDCF_SENSOR", 6),
                         ),
                     ],
@@ -430,14 +425,14 @@ basic_sub = Struct(
             name="payload_spdcfs",
             condition=Bool("BASIC_PL_FLAG"),
             body=PrefixedList(
-                Int("NUM_BASIC_PL", 2, Positive()),
+                Int("NUM_BASIC_PL", 2, positive),
                 Struct(
                     BasicPayloadSpdcf,
                     [
-                        Int("BASIC_PL_SPDCF", 2, Positive()),
+                        Int("BASIC_PL_SPDCF", 2, positive),
                         PrefixedList(
                             name="pairings",
-                            count=Int("NUM_PAIRINGS_BASIC_PL", 2, Positive()),
+                            count=Int("NUM_PAIRINGS_BASIC_PL", 2, positive),
                             body=BcsString("BASIC_PL_SPDCF_SENSOR", 6),
                         ),
                     ],
@@ -447,7 +442,7 @@ basic_sub = Struct(
         Optional(
             name="sensor_spdcf",
             condition=Bool("BASIC_SR_FLAG"),
-            body=Int("BASIC_SR_SPDCF", 2, Positive()),
+            body=Int("BASIC_SR_SPDCF", 2, positive),
         ),
     ],
 )
@@ -460,7 +455,7 @@ core_set = Struct(
         BcsIntEnum("REF_FRAME_ATTITUDE", 1, enum=ReferenceFrame),
         PrefixedList(
             name="groups",
-            count=Int("NUM_GROUPS", 1, Range(1, 7)),
+            count=Int("NUM_GROUPS", 1, in_range(1, 7)),
             body=Struct(
                 CPGroup,
                 [
@@ -468,7 +463,7 @@ core_set = Struct(
                     HMSeconds("CORR_REF_TIME"),
                     PrefixedList(
                         name="parameters",
-                        count=Int("NUM_ADJ_PARM", 1, Range(1, 7)),
+                        count=Int("NUM_ADJ_PARM", 1, in_range(1, 7)),
                         body=BcsIntEnum("ADJ_PARM_ID", 1, enum=ParameterId),
                     ),
                     Optional(
@@ -501,12 +496,12 @@ cscsdb = Segment(
                 Uuid("UUID"),
                 PrefixedList(
                     name="images",
-                    count=Override(Int("NUMAIS", 3, Range(0, 998)), {b"ALL": 0}),
-                    body=Int("AISDLVL", 3, Positive()),
+                    count=Override(Int("NUMAIS", 3, in_range(0, 998)), {b"ALL": 0}),
+                    body=Int("AISDLVL", 3, positive),
                 ),
                 PrefixedList(
                     name="elements",
-                    count=Int("NUM_ASSOC_ELEM", 3, Range(0, 276)),
+                    count=Int("NUM_ASSOC_ELEM", 3, in_range(0, 276)),
                     body=Uuid("ASSOC_ELEM_UUID"),
                 ),
                 Constant(Int("RESERVEDSUBH_LEN", 4), 0),
@@ -517,7 +512,7 @@ cscsdb = Segment(
         IsoDate("COV_VERSION_DATE"),
         PrefixedList(
             name="core_sets",
-            count=Int("CORE_SETS", 1, Range(0, 6)),
+            count=Int("CORE_SETS", 1, in_range(0, 6)),
             body=core_set,
         ),
         Optional(
@@ -539,7 +534,7 @@ cscsdb = Segment(
             name="spdcfs",
             condition=Bool("SPDCF_FLAG"),
             body=PrefixedList(
-                Int("NUM_SPDCF", 2, Positive()),
+                Int("NUM_SPDCF", 2, positive),
                 spdcf,
             ),
         ),
@@ -549,15 +544,15 @@ cscsdb = Segment(
             body=direct_cover,
         ),
         ReservedExtensions(
-            Int("RESERVED_LEN", 9, NonNegative()),
-            Int("MASK_LEN", 2, Positive()),
+            Int("RESERVED_LEN", 9, nonnegative),
+            Int("MASK_LEN", 2, positive),
             {
                 1: SizedList(
                     name="adj_param_spdcfs",
                     # Because the spec references NUM_PARA here, I assume that this
                     # extension only appears when direct covariance is supplied.
                     count=lambda ctx: len(ctx["direct_covar"].adjustments),
-                    body=Int("SPDCF_ID_ADJ", 2, Positive()),
+                    body=Int("SPDCF_ID_ADJ", 2, positive),
                 ),
             },
         ),

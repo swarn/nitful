@@ -7,7 +7,7 @@ from nitful._dsl.rules import (
     SizedList,
     Struct,
 )
-from nitful._dsl.validator import NonNegative, NonZero, Positive
+from nitful._dsl.validator import nonnegative, nonzero, positive
 from nitful._format.tre import register_tre
 from nitful.extensions.rpc00b import RPC00B
 
@@ -17,18 +17,18 @@ rpc00b_spec = Struct(
         Constant(BcsString("CETAG", 6), "RPC00B"),
         Constant(Int("CEL", 5), 1041),
         Constant(Int("SUCCESS", 1), 1),
-        Fixed("ERR_BIAS", 7, NonNegative(), ndigits=2),
-        Fixed("ERR_RAND", 7, NonNegative(), ndigits=2),
-        Int("LINE_OFF", 6, NonNegative()),
-        Int("SAMP_OFF", 5, NonNegative()),
+        Fixed("ERR_BIAS", 7, nonnegative, ndigits=2),
+        Fixed("ERR_RAND", 7, nonnegative, ndigits=2),
+        Int("LINE_OFF", 6, nonnegative),
+        Int("SAMP_OFF", 5, nonnegative),
         Fixed("LAT_OFF", 8, ndigits=4, sign=True),
         Fixed("LONG_OFF", 9, ndigits=4, sign=True),
         Int("HEIGHT_OFF", 5, sign=True),
-        Int("LINE_SCALE", 6, Positive()),
-        Int("SAMP_SCLE", 5, Positive()),
-        Fixed("LAT_SCALE", 8, NonZero(), sign=True),
-        Fixed("LONG_SCALE", 9, NonZero(), sign=True),
-        Int("HEIGHT_SCALE", 5, NonZero(), sign=True),
+        Int("LINE_SCALE", 6, positive),
+        Int("SAMP_SCLE", 5, positive),
+        Fixed("LAT_SCALE", 8, nonzero, sign=True),
+        Fixed("LONG_SCALE", 9, nonzero, sign=True),
+        Int("HEIGHT_SCALE", 5, nonzero, sign=True),
         SizedList(
             name="line_num_coeffs",
             count=20,

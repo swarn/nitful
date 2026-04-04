@@ -26,7 +26,7 @@ from nitful._dsl.rules import (
     Variant,
     Vector,
 )
-from nitful._dsl.validator import Literals, NonNegative, Positive, Range
+from nitful._dsl.validator import in_range, nonnegative, one_of, positive
 from nitful._format.des import register_des
 from nitful._format.security import security_spec
 from nitful.extensions.cssfab import (
@@ -95,7 +95,7 @@ fpa_transform = Vector([
 telescope_dataset = Struct(
     TelescopeOpticsDataSet,
     [
-        Fixed("FL_CAL_IOP_TELE", 11, NonNegative(), ndigits=8),
+        Fixed("FL_CAL_IOP_TELE", 11, nonnegative, ndigits=8),
         BcsFloat("PPO_XO_TELE", 21, edigits=2),
         BcsFloat("PPO_YO_TELE", 21, edigits=2),
         BcsFloat("RLD_KO_TELE", 21, edigits=2),
@@ -107,7 +107,7 @@ telescope_dataset = Struct(
         BcsFloat("DCD_P3_TELE", 21, edigits=2),
         BcsFloat("AD_A1_TELE", 21, edigits=2),
         BcsFloat("AD_A2_TELE", 21, edigits=2),
-        BcsFloat("RADIUS_OF_VALIDITY_TELE", 21, NonNegative(), edigits=2),
+        BcsFloat("RADIUS_OF_VALIDITY_TELE", 21, nonnegative, edigits=2),
     ],
 )
 
@@ -126,7 +126,7 @@ telescope_optics_frame = Struct(
     TelescopeOpticsFrameBased,
     [
         Computed(
-            Int("NUM_TELE_SETS_FA_DATA", 1, NonNegative()),
+            Int("NUM_TELE_SETS_FA_DATA", 1, nonnegative),
             lambda ctx: len(ctx["datasets"]),
         ),
         PrefixedList(
@@ -146,7 +146,7 @@ telescope_optics_time = Struct(
     TelescopeOpticsTimeBased,
     [
         Computed(
-            Int("NUM_TELE_SETS_FA_DATA", 1, NonNegative()),
+            Int("NUM_TELE_SETS_FA_DATA", 1, nonnegative),
             lambda ctx: len(ctx["datasets"]),
         ),
         Computed(
@@ -155,7 +155,7 @@ telescope_optics_time = Struct(
         ),
         PrefixedList(
             name="varying_io_parm_ids",
-            count=Int("N_VARYING_IO", 2, Range(1, 11)),
+            count=Int("N_VARYING_IO", 2, in_range(1, 11)),
             body=BcsIntEnum("TIME_VARYING_IO_PARM_ID", 2, enum=TimeVaryingIoParmId),
         ),
         IsoDate("TELE_DATE"),
@@ -196,13 +196,13 @@ direct_field_angle_data = Struct(
                     Fixed("NUM_FIR_LINE", 12, ndigits=5, sign=True),
                     Fixed("DELTA_LINE", 11, ndigits=5),
                     Computed(
-                        Int("NUM_FA_BLOCKS_LINE", 3, Positive()),
+                        Int("NUM_FA_BLOCKS_LINE", 3, positive),
                         lambda ctx: len(ctx["blocks"]),
                     ),
                     Fixed("NUM_FIR_SAMP", 12, ndigits=5, sign=True),
                     Fixed("DELTA_SAMP", 11, ndigits=5),
                     Computed(
-                        Int("NUM_FA_BLOCKS_SAMP", 3, Positive()),
+                        Int("NUM_FA_BLOCKS_SAMP", 3, positive),
                         lambda ctx: len(ctx["blocks"][0]),
                     ),
                     SizedList(
@@ -224,11 +224,11 @@ calibration_field_angle_data = Struct(
     [
         BcsIntEnum("FA_INTERP", 1, enum=FocalLengthInterpolation),
         Computed(
-            Int("NUM_FP_ARRAYS_LINE", 3, Positive()),
+            Int("NUM_FP_ARRAYS_LINE", 3, positive),
             lambda ctx: len(ctx["fp_arrays"]),
         ),
         Computed(
-            Int("NUM_FP_ARRAYS_SAMP", 3, Positive()),
+            Int("NUM_FP_ARRAYS_SAMP", 3, positive),
             lambda ctx: len(ctx["fp_arrays"][0]),
         ),
         SizedList(
@@ -268,7 +268,7 @@ framer_alignment = Struct(
     FramerAlignment,
     [
         Computed(
-            Int("NUM_SETS_FA_DATA", 1, Positive()),
+            Int("NUM_SETS_FA_DATA", 1, positive),
             lambda ctx: len(ctx["field_angle_data"].sets),
         ),
         Computed(
@@ -307,7 +307,7 @@ scanner_alignment = Struct(
         Fixed("DELTA_SMPL_PAIRS", 11, ndigits=5),
         PrefixedList(
             name="fa_pairs",
-            count=Int("NUM_FA_PAIRS", 3, Positive()),
+            count=Int("NUM_FA_PAIRS", 3, positive),
             body=Struct(
                 FieldAlignmentPair,
                 [
@@ -326,7 +326,7 @@ cssfab = Segment(
     subheader=[
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSSFAB"),
-        Int("DESVER", 2, Literals([1, 2])),
+        Int("DESVER", 2, one_of(1, 2)),
         security_spec,
         SizedBlock(
             Int("DESSHL", 4),
@@ -334,12 +334,12 @@ cssfab = Segment(
                 Uuid("UUID"),
                 PrefixedList(
                     name="images",
-                    count=Override(Int("NUMAIS", 3, Range(0, 998)), {b"ALL": 0}),
-                    body=Int("AISDLVL", 3, Positive()),
+                    count=Override(Int("NUMAIS", 3, in_range(0, 998)), {b"ALL": 0}),
+                    body=Int("AISDLVL", 3, positive),
                 ),
                 PrefixedList(
                     name="elements",
-                    count=Int("NUM_ASSOC_ELEM", 3, Range(0, 276)),
+                    count=Int("NUM_ASSOC_ELEM", 3, in_range(0, 276)),
                     body=Uuid("ASSOC_ELEM_UUID"),
                 ),
                 Constant(Int("RESERVEDSUBH_LEN", 4), 0),
@@ -359,18 +359,18 @@ cssfab = Segment(
         Fixed("BAND_WAVELENGTH", 11, ndigits=8),
         PrefixedList(
             name="bands",
-            count=Int("N_BANDS", 5, NonNegative()),
+            count=Int("N_BANDS", 5, nonnegative),
             body=Struct(
                 BandInfo,
                 [
-                    Int("BAND_INDEX", 5, Positive()),
+                    Int("BAND_INDEX", 5, positive),
                     Blankable(BcsString("IREPBAND", 2)),
                     Blankable(BcsString("ISUBCAT", 6)),
                 ],
             ),
         ),
         Computed(
-            Int("NUM_FL_PTS", 3, Positive()),
+            Int("NUM_FL_PTS", 3, positive),
             lambda ctx: len(ctx["focal_lengths"]),
         ),
         BcsIntEnum("FL_INTERP", 1, enum=FocalLengthInterpolation),
@@ -411,8 +411,8 @@ cssfab = Segment(
             },
         ),
         ReservedExtensions(
-            Int("RESERVED_LEN", 9, NonNegative()),
-            Int("MASK_LEN", 2, Positive()),
+            Int("RESERVED_LEN", 9, nonnegative),
+            Int("MASK_LEN", 2, positive),
             cases={},
         ),
     ],

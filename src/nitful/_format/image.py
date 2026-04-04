@@ -22,7 +22,7 @@ from nitful._dsl.rules import (
     Rule,
     Struct,
 )
-from nitful._dsl.validator import Literals, NonNegative, Positive, Range
+from nitful._dsl.validator import in_range, nonnegative, one_of, positive
 from nitful.core.common import EncryptionLevel
 from nitful.core.image import (
     BandInfo,
@@ -171,7 +171,7 @@ image_head_spec: list[Rule[Any]] = [
     IcordsSpec(name="location"),
     PrefixedList(
         name="comments",
-        count=Int("NICOM", 1, NonNegative()),
+        count=Int("NICOM", 1, nonnegative),
         body=EcsString("ICOM", 80),
     ),
     CompressionSpec(name="compression"),
@@ -190,16 +190,16 @@ image_head_spec: list[Rule[Any]] = [
         ),
     ),
     Constant(Int("ISYNC", 1), 0),
-    BcsString("IMODE", 1, Literals(["B", "P", "R", "S"])),
-    Int("NBPR", 4, Positive()),
-    Int("NBPC", 4, Positive()),
-    Int("NPPBH", 4, Range(0, 8192)),
-    Int("NPPBV", 4, Range(0, 8192)),
-    Int("NBPP", 2, Range(1, 64)),
-    Int("IDLVL", 3, Positive()),
-    Int("IALVL", 3, Range(0, 998)),
-    Int("ILOCROW", 5, Range(-9999, 99999)),
-    Int("ILOCCOL", 5, Range(-9999, 99999)),
+    BcsString("IMODE", 1, one_of("B", "P", "R", "S")),
+    Int("NBPR", 4, positive),
+    Int("NBPC", 4, positive),
+    Int("NPPBH", 4, in_range(0, 8192)),
+    Int("NPPBV", 4, in_range(0, 8192)),
+    Int("NBPP", 2, in_range(1, 64)),
+    Int("IDLVL", 3, positive),
+    Int("IALVL", 3, in_range(0, 998)),
+    Int("ILOCROW", 5, in_range(-9999, 99999)),
+    Int("ILOCCOL", 5, in_range(-9999, 99999)),
     BcsString("IMAG", 4),
 ]
 

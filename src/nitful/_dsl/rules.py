@@ -151,8 +151,6 @@ from uuid import UUID
 
 from nitful.core.errors import ParseError, SerializeError
 
-from .validator import Validator
-
 
 @dataclass
 class Item:
@@ -440,7 +438,7 @@ class Field[T](BaseRule[T], ABC):
     size: int
 
     # An optional validation step before serialization.
-    validate: Validator[T] | None = None
+    validate: Callable[[T], bool] | None = None
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:

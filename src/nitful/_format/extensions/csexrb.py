@@ -33,7 +33,7 @@ from nitful._dsl.rules import (
     Variant,
     VarString,
 )
-from nitful._dsl.validator import Literals, NonNegative, Positive, Range
+from nitful._dsl.validator import in_range, nonnegative, one_of, positive
 from nitful._format.tre import register_tre
 from nitful.extensions.csexrb import (
     CSEXRB,
@@ -137,17 +137,17 @@ class ExposureIndices(Combinator[list[int]]):
 imaging_operation = Struct(
     ImagingOperation,
     [
-        VarString(Int("CM_ID_LEN", 2, Range(0, 99)), name="CM_ID"),
-        VarString(Int("SENSOR_CONFIG_LEN", 2, Range(0, 99)), name="SENSOR_CONFIG"),
-        VarString(Int("IMG_OP_ID_LEN", 2, Range(0, 99)), name="IMG_OP_ID"),
+        VarString(Int("CM_ID_LEN", 2, in_range(0, 99)), name="CM_ID"),
+        VarString(Int("SENSOR_CONFIG_LEN", 2, in_range(0, 99)), name="SENSOR_CONFIG"),
+        VarString(Int("IMG_OP_ID_LEN", 2, in_range(0, 99)), name="IMG_OP_ID"),
         ExposureIndices(name="indices"),
         PrefixedList(
-            Int("NUM_QUALITY_METRICS", 2, Range(0, 99)),
+            Int("NUM_QUALITY_METRICS", 2, in_range(0, 99)),
             Struct(
                 QualityMetric,
                 [
                     VarString(
-                        Int("QUALITY_METRIC_NAME_LEN", 2, Range(1, 15)),
+                        Int("QUALITY_METRIC_NAME_LEN", 2, in_range(1, 15)),
                         name="QUALITY_METRIC_NAME",
                     ),
                     VarString(
@@ -171,15 +171,15 @@ collection_criteria = Struct(
     CollectionCriteria,
     [
         VarString(
-            Int("COLLECT_CRITERIA_NAME_LEN", 2, Range(1, 25)),
+            Int("COLLECT_CRITERIA_NAME_LEN", 2, in_range(1, 25)),
             name="COLLECT_CRITERIA_NAME",
         ),
         VarString(
-            Int("COLLECT_CRITERIA_UNIT_LEN", 2, Range(0, 25)),
+            Int("COLLECT_CRITERIA_UNIT_LEN", 2, in_range(0, 25)),
             name="COLLECT_CRITERIA_UNIT",
         ),
         VarString(
-            Int("COLLECT_CRITERIA_VALUE_LEN", 2, Range(0, 25)),
+            Int("COLLECT_CRITERIA_VALUE_LEN", 2, in_range(0, 25)),
             name="COLLECT_CRITERIA_VALUE",
         ),
     ],
@@ -188,17 +188,19 @@ collection_criteria = Struct(
 rfa = Struct(
     TargetAndCollectionData,
     [
-        Int("NUM_IMG_OPS", 2, Positive()),
-        VarString(Int("TGT_ID_LEN", 2, Literals([0, 17])), name="TGT_ID"),
+        Int("NUM_IMG_OPS", 2, positive),
+        VarString(Int("TGT_ID_LEN", 2, one_of(0, 17)), name="TGT_ID"),
         VarString(Int("TGT_NAME_LEN", 2), name="TGT_NAME"),
         VarString(Int("TGT_TYPE_LEN", 2), name="TGT_TYPE"),
         Blankable(Fixed("TGT_LAT", 9, sign=True, ndigits=5)),
         Blankable(Fixed("TGT_LON", 10, sign=True, ndigits=5)),
         Blankable(Fixed("TGT_HT", 8, sign=True, ndigits=1)),
         Blankable(ConcatDatetime(name="TGT_DATE_TIME")),
-        Blankable(Fixed("TGT_AZ", 7, Range(0, 359.999), ndigits=3)),
-        Blankable(Fixed("TGT_ELEV_ANG", 7, Range(-90, 90), sign=True, ndigits=3)),
-        Blankable(Fixed("TGT_BIDEC_ANG", 7, Range(0, 180), ndigits=3)),
+        Blankable(Fixed("TGT_AZ", 7, in_range(0, 359.999), ndigits=3)),
+        Blankable(
+            Fixed("TGT_ELEV_ANG", 7, in_range(-90.0, 90.0), sign=True, ndigits=3)
+        ),
+        Blankable(Fixed("TGT_BIDEC_ANG", 7, in_range(0, 180.0), ndigits=3)),
         VarString(Int("COLL_REQ_ID_LEN", 3), name="COLL_REQ_ID"),
         VarString(Int("COLLECT_STRAT_LEN", 2), name="COLLECT_STRAT"),
         VarString(Int("COLLECT_TYPE_LEN", 2), name="COLLECT_TYPE"),
@@ -208,7 +210,7 @@ rfa = Struct(
             count=Int("NUM_COLLECT_CRITERIA", 2),
             body=collection_criteria,
         ),
-        PrefixedList(Int("NUM_IMG_OPS_DATA", 2, Range(0, 99)), imaging_operation),
+        PrefixedList(Int("NUM_IMG_OPS_DATA", 2, in_range(0, 99)), imaging_operation),
     ],
     name="rfa1",
 )
@@ -218,11 +220,11 @@ scanner_timing = Struct(
     ScannerTiming,
     [
         IsoDate("DAY_FIRST_LINE_IMAGE"),
-        Fixed("TIME_FIRST_LINE_IMAGE", 15, Range(0, 86399.999999999), ndigits=9),
+        Fixed("TIME_FIRST_LINE_IMAGE", 15, in_range(0, 86399.999999999), ndigits=9),
         Fixed(
             "TIME_IMAGE_DURATION",
             16,
-            Range(-86399.999999999, 86399.999999999),
+            in_range(-86399.999999999, 86399.999999999),
             ndigits=9,
             sign=True,
         ),
@@ -245,12 +247,12 @@ framer_timing = Struct(
                 TimeStampLoc.CSEXRB: Struct(
                     DesFramerTiming,
                     [
-                        Blankable(Int("REFERENCE_FRAME_NUM", 9, Positive())),
+                        Blankable(Int("REFERENCE_FRAME_NUM", 9, positive)),
                         BcsString("BASE_TIMESTAMP", 24),
-                        BinaryInt("DT_MULTIPLIER", 8, Positive()),
-                        BinaryInt("DT_SIZE", 1, Positive()),
-                        BinaryInt("NUMBER_FRAMES", 4, Positive()),
-                        BinaryInt("NUMBER_DT", 4, NonNegative()),
+                        BinaryInt("DT_MULTIPLIER", 8, positive),
+                        BinaryInt("DT_SIZE", 1, positive),
+                        BinaryInt("NUMBER_FRAMES", 4, positive),
+                        BinaryInt("NUMBER_DT", 4, nonnegative),
                         TimeDeltas(name="time_deltas"),
                     ],
                 ),
@@ -288,31 +290,33 @@ csexrb = Struct(
                         SensorType.NONE: Nothing(),
                     },
                 ),
-                Blankable(Fixed("MAX_GSD", 12, NonNegative(), ndigits=1)),
-                Blankable(Fixed("ALONG_SCAN_GSD", 12, NonNegative(), ndigits=1)),
-                Blankable(Fixed("CROSS_SCAN_GSD", 12, NonNegative(), ndigits=1)),
-                Blankable(Fixed("GEO_MEAN_GSD", 12, NonNegative(), ndigits=1)),
-                Blankable(Fixed("A_S_VERT_GSD", 12, NonNegative(), ndigits=1)),
-                Blankable(Fixed("C_S_VERT_GSD", 12, NonNegative(), ndigits=1)),
-                Blankable(Fixed("GEO_MEAN_VERT_GSD", 12, NonNegative(), ndigits=1)),
-                Blankable(Fixed("GSD_BETA_ANGLE", 5, Range(0, 180), ndigits=1)),
-                Blankable(Int("DYNAMIC_RANGE", 5, NonNegative())),
-                Int("NUM_LINES", 7, NonNegative()),
-                Int("NUM_SAMPLES", 5, NonNegative()),
-                Blankable(Fixed("ANGLE_TO_NORTH", 7, Range(0, 359.999), ndigits=3)),
-                Blankable(Fixed("OBLIQUITY_ANGLE", 6, Range(0, 90), ndigits=3)),
-                Blankable(Fixed("AZ_OF_OBLIQUITY", 7, Range(0, 359.999), ndigits=3)),
+                Blankable(Fixed("MAX_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(Fixed("ALONG_SCAN_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(Fixed("CROSS_SCAN_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(Fixed("GEO_MEAN_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(Fixed("A_S_VERT_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(Fixed("C_S_VERT_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(Fixed("GEO_MEAN_VERT_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(Fixed("GSD_BETA_ANGLE", 5, in_range(0, 180.0), ndigits=1)),
+                Blankable(Int("DYNAMIC_RANGE", 5, nonnegative)),
+                Int("NUM_LINES", 7, nonnegative),
+                Int("NUM_SAMPLES", 5, nonnegative),
+                Blankable(Fixed("ANGLE_TO_NORTH", 7, in_range(0, 359.999), ndigits=3)),
+                Blankable(Fixed("OBLIQUITY_ANGLE", 6, in_range(0, 90.0), ndigits=3)),
+                Blankable(Fixed("AZ_OF_OBLIQUITY", 7, in_range(0, 359.999), ndigits=3)),
                 Bool("ATM_REFR_FLAG", size=1),
                 Bool("VEL_ABER_FLAG", size=1),
                 BcsIntEnum("GRD_COVER", 1, enum=GroundCover),
                 BcsIntEnum("SNOW_DEPTH_CATEGORY", 1, enum=SnowDepth),
-                Blankable(Fixed("SUN_AZIMUTH", 7, Range(0, 359.999), ndigits=3)),
+                Blankable(Fixed("SUN_AZIMUTH", 7, in_range(0, 359.999), ndigits=3)),
                 Blankable(
-                    Fixed("SUN_ELEVATION", 7, Range(-90, 90), sign=True, ndigits=3)
+                    Fixed(
+                        "SUN_ELEVATION", 7, in_range(-90.0, 90.0), sign=True, ndigits=3
+                    )
                 ),
-                Blankable(Fixed("PREDICTED_NIIRS", 3, Range(0.0, 9.0), ndigits=1)),
-                Blankable(Fixed("CIRCL_ERR", 5, NonNegative(), ndigits=1)),
-                Blankable(Fixed("LINEAR_ERR", 5, NonNegative(), ndigits=1)),
+                Blankable(Fixed("PREDICTED_NIIRS", 3, in_range(0.0, 9.0), ndigits=1)),
+                Blankable(Fixed("CIRCL_ERR", 5, nonnegative, ndigits=1)),
+                Blankable(Fixed("LINEAR_ERR", 5, nonnegative, ndigits=1)),
                 Blankable(Int("CLOUD_COVER", 3)),
                 Conditional(
                     condition=lambda ctx: ctx.get("SENSOR_TYPE") == SensorType.FRAMER,
@@ -322,8 +326,8 @@ csexrb = Struct(
                 ),
                 Blankable(Bool("UE_TIME_FLAG", size=1)),
                 ReservedExtensions(
-                    Int("RESERVED_LEN", 5, NonNegative()),
-                    Int("MASK_LEN", 2, Positive()),
+                    Int("RESERVED_LEN", 5, nonnegative),
+                    Int("MASK_LEN", 2, positive),
                     {
                         1: rfa,
                     },

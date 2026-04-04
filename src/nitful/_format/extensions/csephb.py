@@ -40,7 +40,12 @@ from nitful._dsl.rules import (
     Variant,
     Vector,
 )
-from nitful._dsl.validator import Literals, NonNegative, Positive, Range
+from nitful._dsl.validator import (
+    in_range,
+    nonnegative,
+    one_of,
+    positive,
+)
 from nitful._format.des import register_des
 from nitful._format.eci import eci_spec
 from nitful._format.security import security_spec
@@ -131,12 +136,12 @@ csephb = Segment(
                 Uuid("UUID"),
                 PrefixedList(
                     name="images",
-                    count=Override(Int("NUMAIS", 3, Range(0, 998)), {b"ALL": 0}),
-                    body=Int("AISDLVL", 3, Positive()),
+                    count=Override(Int("NUMAIS", 3, in_range(0, 998)), {b"ALL": 0}),
+                    body=Int("AISDLVL", 3, positive),
                 ),
                 PrefixedList(
                     name="elements",
-                    count=Int("NUM_ASSOC_ELEM", 3, Range(0, 276)),
+                    count=Int("NUM_ASSOC_ELEM", 3, in_range(0, 276)),
                     body=Uuid("ASSOC_ELEM_UUID"),
                 ),
                 Constant(Int("RESERVEDSUBH_LEN", 4), 0),
@@ -152,7 +157,7 @@ csephb = Segment(
                 InterpolationType.NEAREST: Struct(NearestNeighbor, []),
                 InterpolationType.LINEAR: Struct(Linear, []),
                 InterpolationType.LAGRANGIAN: Struct(
-                    Lagrangian, [Int("INTERP_ORDER_EPH", 1, Literals([3, 5, 7]))]
+                    Lagrangian, [Int("INTERP_ORDER_EPH", 1, one_of(3, 5, 7))]
                 ),
             },
         ),
@@ -171,12 +176,12 @@ csephb = Segment(
                 ),
             },
         ),
-        Fixed("DT_EPHEM", 13, Range(1e-9, 1000 - 1e-9), ndigits=9),
+        Fixed("DT_EPHEM", 13, in_range(1e-9, 1000 - 1e-9), ndigits=9),
         IsoDate("DATE_EPHEM"),
         HMSeconds("T0_EPHEM"),
         PrefixedList(
             name="ephemerides",
-            count=Int("NUM_EPHEM", 5, Positive()),
+            count=Int("NUM_EPHEM", 5, positive),
             body=Vector([
                 Fixed("EPHEM_X", 12, ndigits=2, sign=True),
                 Fixed("EPHEM_Y", 12, ndigits=2, sign=True),
@@ -184,8 +189,8 @@ csephb = Segment(
             ]),
         ),
         ReservedExtensions(
-            Int("RESERVED_LEN", 9, NonNegative()),
-            Int("MASK_LEN", 2, Positive()),
+            Int("RESERVED_LEN", 9, nonnegative),
+            Int("MASK_LEN", 2, positive),
             cases={
                 1: RFA1(),
             },
