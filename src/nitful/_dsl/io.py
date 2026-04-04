@@ -13,11 +13,11 @@ def write_fields(fields: Iterable[Item], out_fd: BinaryIO) -> None:
             field.value.write(out_fd)
 
 
-WIDTH = 60
+WIDTH = 68
 
 
 def dump_fields(
-    fields: Iterable[Item],
+    items: Iterable[Item],
     *,
     header: bool = False,
     image_nums: list[int] | None = None,
@@ -25,7 +25,7 @@ def dump_fields(
     des_names: list[str] | None = None,
 ) -> str:
     """Convert fields to a human-readable string, with optional filtering."""
-    field_list = list(fields)
+    item_list = list(items)
 
     # Inclusion lists if filtering.
     included_tre = set(tre_names or [])
@@ -44,8 +44,8 @@ def dump_fields(
 
     lines.append(format(" FILE HEADER ", f"=^{WIDTH}"))
 
-    for i, f in enumerate(field_list):
-        if f.name == "IM":
+    for i, item in enumerate(item_list):
+        if item.name == "IM":
             tre_num = 0
             image_num += 1
 
@@ -54,11 +54,11 @@ def dump_fields(
 
             lines.append(format(f" IMAGE SEGMENT {image_num} ", f"=^{WIDTH}"))
 
-        if f.name == "IMAGE DATA":
+        if item.name == "IMAGE DATA":
             keep = not filtering or image_num in included_image
             lines = output if keep else filtered
 
-            title = f" IMAGE {image_num} DATA: {len(f.value)} bytes "
+            title = f" IMAGE {image_num} DATA: {len(item.value)} bytes "
             lines.extend([
                 "/" * WIDTH,
                 format(title, f"/^{WIDTH}"),
@@ -66,14 +66,14 @@ def dump_fields(
             ])
             continue
 
-        if not isinstance(f.value, bytes):
-            val_str = f"<{len(f.value)} bytes>"
-            lines.append(f"{f.name}: {val_str}")
+        if not isinstance(item.value, bytes):
+            val_str = f"<{len(item.value)} bytes>"
+            lines.append(f"{item.name}: {val_str}")
             continue
 
-        if f.name == "CETAG":
+        if item.name == "CETAG":
             tre_num += 1
-            tre_name = f.value.decode().strip()
+            tre_name = item.value.decode().strip()
 
             keep = (
                 not filtering
@@ -84,12 +84,12 @@ def dump_fields(
             lines = output if keep else filtered
 
             location = "HEADER" if image_num == 0 else f"IMAGE {image_num}"
-            title = f" {location} TRE {tre_num}: {f.value.decode()} "
+            title = f" {location} TRE {tre_num}: {item.value.decode()} "
             lines.append(format(title, f"=^{WIDTH}"))
 
-        if f.name == "DE":
+        if item.name == "DE":
             des_num += 1
-            desname = cast(bytes, field_list[i + 1].value).decode().strip()
+            desname = cast(bytes, item_list[i + 1].value).decode().strip()
 
             keep = not filtering or desname in included_des
             lines = output if keep else filtered
@@ -97,10 +97,37 @@ def dump_fields(
             title = format(f" DES {des_num}: {desname} ", f"=^{WIDTH}")
             lines.append(title)
 
-        if len(f.value) == 0:
-            continue
-
-        val_str = repr(f.value)[1:]
-        lines.append(f"{f.name}: {val_str}")
+        lines.extend(_format_item(item, WIDTH))
 
     return "\n".join(output)
+
+
+def _format_item(item: Item, width: int) -> list[str]:
+    if type(item.value) is not bytes:
+        raise ValueError
+
+    if len(item.value) == 0:
+        return []
+
+    val_str = f"{item.name}: {repr(item.value)[1:]}"
+
+    if len(val_str) <= width:
+        return [val_str]
+
+    lines: list[str] = []
+    lines.append(f"{item.name}:")
+
+    chunk = bytearray()
+    line_without_byte = "''"
+    line_with_byte = "''"
+    for byte in item.value:
+        line_without_byte = line_with_byte
+        chunk.append(byte)
+        line_with_byte = f"  {repr(bytes(chunk))[1:]}"
+        if len(line_with_byte) > width:
+            lines.append(line_without_byte)
+            chunk = chunk[-1:]
+            line_with_byte = f"  {repr(bytes(chunk))[1:]}"
+
+    lines.append(line_with_byte)
+    return lines
