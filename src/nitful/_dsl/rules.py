@@ -46,9 +46,9 @@ depends on earlier fields. To support this, the AST evaluation passes a shared
   current scope, the lookup will proceed to the containing scope, etc.
 
 In addition to the symbol table, the Context bundles various other impure
-side-effects during evaluation: it tracks byte offset during parsing and
-serialization, the path from the AST root to the current node, as well as a
-history of reads/writes used for error reporting.
+side-effects during evaluation: the path from the AST root to the current node,
+as a history of reads/writes used for error reporting, and byte offset during
+parsing.
 
 
 ## Names and structure (`name`)
@@ -179,7 +179,7 @@ class StreamablePayload(Protocol):
     def read(self) -> bytes: ...
 
 
-class Context:
+class Context(ABC):
     """A context maintained during parsing or serialization.
 
     See the description in the module docstring for more info.
@@ -194,10 +194,6 @@ class Context:
 
         # Stacked indices for tracking position inside lists.
         self.indices: list[int] = []
-
-        # Recently-processed fields (byte offset, name, value), to add context
-        # to error messages.
-        self.fields: deque[tuple[int, str, Any]] = deque(maxlen=5)
 
         # Current path from the root to the node, (node, indices).
         self.path: list[tuple[BaseRule[Any], tuple[int, ...]]] = []
@@ -248,31 +244,31 @@ class Context:
 
         return "".join(f"[{i}]" for i in self.indices)
 
-    def format_fields(self) -> str:
-        """Get a string with the most recently processed fields."""
-        return "\n".join(
-            f"  [{off} (0x{off:04X})] {name}: {val!r}" for off, name, val in self.fields
-        )
-
-    def format_error(self, action: str, base_msg: str, offset: int) -> str:
-        """Get a error message desribing parsing/serialization state."""
+    def format_path(self) -> str:
         path_strs: list[str] = []
         for node, indices in self.path:
             sub_str = "".join(f"[{i}]" for i in indices) if indices else ""
             path_strs.append(node.display_name() + sub_str)
 
-        path_str = "\n  -> ".join(path_strs)
+        return "\n  -> ".join(path_strs)
 
-        msg = (
-            f"Error {action} at byte [{offset}]"
+    @abstractmethod
+    def format_fields(self) -> str:
+        """Get a string with the most recently processed fields."""
+
+    def format_error(
+        self, action: str, base_msg: str, offset: int | None = None
+    ) -> str:
+        """Get a error message desribing parsing/serialization state."""
+
+        offset_str = "" if offset is None else f" at byte {offset} (0x{offset:04X})"
+
+        return (
+            f"Error {action}{offset_str}"
             f"\n\nCause: {base_msg}"
-            f"\n\nWhere:\n  {path_str}"
+            f"\n\nWhere:\n  {self.format_path()}"
+            f"{self.format_fields()}"
         )
-
-        if self.fields:
-            msg += f"\n\nRecent fields:\n{self.format_fields()}"
-
-        return msg
 
 
 class ParseContext(Context):
@@ -284,7 +280,23 @@ class ParseContext(Context):
 
     is_parsing: ClassVar[bool] = True
 
+    def __init__(self, init: dict[str, Any] | None = None) -> None:
+        super().__init__(init)
 
+        # Recently-processed fields (byte offset, name, value), to add context
+        self.fields: deque[tuple[int | None, str, Any]] = deque(maxlen=5)
+
+    @override
+    def format_fields(self) -> str:
+        if not self.fields:
+            return ""
+
+        return "\n\nRecent fields:\n" + "\n".join(
+            f"  [{off} (0x{off:04X})] {name}: {val!r}" for off, name, val in self.fields
+        )
+
+
+@dataclass
 class EmitContext(Context):
     """Context while serializing Python objects into binary fields.
 
@@ -296,7 +308,18 @@ class EmitContext(Context):
 
     def __init__(self, init: dict[str, Any] | None = None) -> None:
         super().__init__(init)
-        self.current_offset: int = 0
+
+        # Recently-processed fields (name, value).
+        self.fields: deque[tuple[str, Any]] = deque(maxlen=5)
+
+    @override
+    def format_fields(self) -> str:
+        if not self.fields:
+            return ""
+
+        return "\n\nRecent fields:\n" + "\n".join(
+            f"  {name}: {val!r}" for name, val in self.fields
+        )
 
 
 class Rule[T](Protocol):
@@ -369,7 +392,7 @@ class BaseRule[T](ABC):
         except SerializeError:
             raise
         except Exception as e:
-            msg = ctx.format_error("serializing", str(e), ctx.current_offset)
+            msg = ctx.format_error("serializing", str(e))
             raise SerializeError(msg) from e
         finally:
             ctx.path.pop()
@@ -441,8 +464,7 @@ class Field[T](BaseRule[T], ABC):
             raise RuntimeError(msg)
 
         full_name = self.name + ctx.format_subscripts()
-        ctx.fields.append((ctx.current_offset, full_name, value))
-        ctx.current_offset += self.size
+        ctx.fields.append((full_name, value))
 
         return [Item(full_name, encoded)]
 
@@ -745,23 +767,6 @@ class BcsFloat(Field[float]):
 
 
 @dataclass
-class HexColor(Field[tuple[int, int, int]]):
-
-    size: int = field(default=3, init=False)
-
-    @override
-    def encode(self, decoded: tuple[int, int, int]) -> bytes:
-        return bytes(decoded)
-
-    @override
-    def decode(self, encoded: bytes) -> tuple[int, int, int]:
-        if len(encoded) != self.size:
-            raise RuntimeError
-
-        return encoded[0], encoded[1], encoded[2]
-
-
-@dataclass
 class IsoDate(Field[date]):
     """A date formatted CCYYMMDD"""
 
@@ -860,20 +865,18 @@ class BinaryInt(Field[int]):
 
 
 @dataclass
-class Constant[T](Combinator[T]):
+class Constant[T](Field[T]):
     """A wrapper that both supplies and expects a specific value."""
 
-    rule: Field[T]
-    value: T
-    name: str = field(default="", init=False)
+    def __init__(self, rule: Field[T], value: T) -> None:
+        super().__init__(name=rule.name, size=rule.size, validate=None)
 
-    def __post_init__(self) -> None:
-        # Get the inner spec's name in order to route it the correct value.
-        self.name = self.rule.name
+        self.rule: Field[T] = rule
+        self.value: T = value
 
     @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
-        parsed = self.rule.parse(fd, ctx)
+    def decode(self, encoded: bytes) -> T:
+        parsed = self.rule.decode(encoded)
         if parsed != self.value:
             msg = (
                 f"Constant mismatch for '{self.rule.name}': "
@@ -883,52 +886,45 @@ class Constant[T](Combinator[T]):
         return self.value
 
     @override
-    def _emit(self, value: T | None = None, *, ctx: EmitContext) -> list[Item]:
-        if value is not None and value != self.value:
-            msg = f"Cannot override constant '{self.rule.name}' with {value!r}."
+    def encode(self, decoded: T) -> bytes:
+        if decoded is not None and decoded != self.value:
+            msg = f"Cannot override constant '{self.rule.name}' with {decoded}."
             raise ValueError(msg)
 
-        return self.rule.to_fields(self.value, ctx)
+        return self.rule.encode(self.value)
 
 
 @dataclass
-class Override[T, V](Combinator[T | V]):
+class Override[T, V](Field[T | V]):
     """Override specific byte patterns with a given value."""
 
-    rule: Field[T]
-    mapping: dict[bytes, V]
-    name: str = field(default="", init=False)
+    def __init__(self, rule: Field[T], mapping: dict[bytes, V]) -> None:
+        # Replicate the inner spec's name and size.
+        super().__init__(name=rule.name, size=rule.size, validate=None)
 
-    def __post_init__(self) -> None:
-        # Get the inner spec's name in order to route it the correct value.
-        self.name = self.rule.name
+        self.rule: Field[T] = rule
+        self.mapping: dict[bytes, V] = mapping
 
         for o_bytes in self.mapping:
-            if len(o_bytes) != self.rule.size:
+            if len(o_bytes) != self.size:
                 msg = f"Override {o_bytes!r} is wrong size"
                 raise ValueError(msg)
 
     @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> T | V:
-        start_pos = fd.tell()
-        b = fd.read(self.rule.size)
+    def decode(self, encoded: bytes) -> T | V:
+        if encoded in self.mapping:
+            return self.mapping[encoded]
 
-        if b in self.mapping:
-            return self.mapping[b]
-
-        fd.seek(start_pos)
-
-        # No overrides matched, use the default rule.
-        return self.rule.parse(fd, ctx)
+        return self.rule.decode(encoded)
 
     @override
-    def _emit(self, value: T | V, *, ctx: EmitContext) -> list[Item]:
+    def encode(self, decoded: T | V) -> bytes:
         for o_bytes, o_value in self.mapping.items():
-            if value == o_value:
-                return [Item(self.rule.name + ctx.format_subscripts(), o_bytes)]
+            if decoded == o_value:
+                return o_bytes
 
         # No overrides matched, use the default rule.
-        return self.rule.to_fields(cast(T, value), ctx)
+        return self.rule.encode(cast(T, decoded))
 
 
 @dataclass
@@ -961,6 +957,33 @@ class Computed[T](Combinator[T]):
             ctx[self.rule.name] = computed_val
 
         return self.rule.to_fields(computed_val, ctx)
+
+
+@dataclass
+class Mapped[T, U](Combinator[U]):
+    """Generic mapping between encoded values and Pythong types.
+
+    An "escape hatch" rule for handling unique values without needing to write
+    a new `Rule` subclass. A `Mapped(FixedBytes(...))` can handle any field
+    format.
+    """
+
+    rule: Rule[T]
+    decoder: Callable[[T], U]
+    encoder: Callable[[U], T]
+
+    name: str = field(default="", init=False)
+
+    def __post_init__(self) -> None:
+        self.name = self.rule.name
+
+    @override
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> U:
+        return self.decoder(self.rule.parse(fd, ctx))
+
+    @override
+    def _emit(self, value: U, *, ctx: EmitContext) -> list[Item]:
+        return self.rule.to_fields(self.encoder(value), ctx)
 
 
 @dataclass
