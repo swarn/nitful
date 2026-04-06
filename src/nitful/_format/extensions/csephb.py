@@ -26,7 +26,7 @@ from nitful.dsl.rules import (
     Combinator,
     Constant,
     EmitContext,
-    Fixed,
+    FixedFloat,
     HMSeconds,
     Int,
     IsoDate,
@@ -71,15 +71,15 @@ class RFA1(Combinator[Kinematics]):
     b_spec: ClassVar[Rule[bool]] = Bool("ACCEL_PROVIDED", true=b"Y", false=b"N")
 
     v_spec: ClassVar[Rule[list[float]]] = Vector([
-        Fixed("VEL_X", 12, ndigits=2, sign=True),
-        Fixed("VEL_Y", 12, ndigits=2, sign=True),
-        Fixed("VEL_Z", 12, ndigits=2, sign=True),
+        FixedFloat("VEL_X", 12, ndigits=2, sign=True),
+        FixedFloat("VEL_Y", 12, ndigits=2, sign=True),
+        FixedFloat("VEL_Z", 12, ndigits=2, sign=True),
     ])
 
     a_spec: ClassVar[Rule[list[float]]] = Vector([
-        Fixed("ACCEL_X", 12, ndigits=2, sign=True),
-        Fixed("ACCEL_Y", 12, ndigits=2, sign=True),
-        Fixed("ACCEL_Z", 12, ndigits=2, sign=True),
+        FixedFloat("ACCEL_X", 12, ndigits=2, sign=True),
+        FixedFloat("ACCEL_Y", 12, ndigits=2, sign=True),
+        FixedFloat("ACCEL_Z", 12, ndigits=2, sign=True),
     ])
 
     @override
@@ -185,16 +185,16 @@ csephb = Segment(
                 ),
             ],
         ),
-        Fixed("DT_EPHEM", 13, in_range(1e-9, 1000 - 1e-9), ndigits=9),
+        FixedFloat("DT_EPHEM", 13, in_range(1e-9, 1000 - 1e-9), ndigits=9),
         IsoDate("DATE_EPHEM"),
-        HMSeconds("T0_EPHEM"),
+        HMSeconds("T0_EPHEM", 16),
         PrefixedList(
             name="ephemerides",
             count=Int("NUM_EPHEM", 5, positive),
             body=Vector([
-                Fixed("EPHEM_X", 12, ndigits=2, sign=True),
-                Fixed("EPHEM_Y", 12, ndigits=2, sign=True),
-                Fixed("EPHEM_Z", 12, ndigits=2, sign=True),
+                FixedFloat("EPHEM_X", 12, ndigits=2, sign=True),
+                FixedFloat("EPHEM_Y", 12, ndigits=2, sign=True),
+                FixedFloat("EPHEM_Z", 12, ndigits=2, sign=True),
             ]),
         ),
         ReservedExtensions(

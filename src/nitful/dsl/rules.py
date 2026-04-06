@@ -644,8 +644,28 @@ class BcsStringEnum[T: StrEnum](Field[T]):
 
 
 @dataclass
-class Fixed(Field[float]):
-    """A fixed-point number: 'nn.ddddd'."""
+class FixedFloat(Field[float]):
+    """A fixed-format decimal-form rational number returned as a Python float.
+
+    Used where the standard specifies a format with a fixed number of decimal
+    places, e.g. "NN.NNN" or "±NN.NNN". When serializing, this formats the
+    value to exactly `ndigits` decimal places, padding the left side to fit the
+    required byte size.
+
+    Examples:
+
+        With size=8 and ndigits=2:
+
+        -  12.3456 -> "00012.35"
+        -  12.3    -> "00012.30"
+        -  -12.3   -> "-0012.30"
+
+        With size 8, ndigits=2, and sign=True:
+
+        -  12.3456 -> "+0012.35"
+        -  12.3    -> "+0012.30"
+        -  -12.3   -> "-0012.30"
+    """
 
     _: KW_ONLY
 
@@ -667,31 +687,69 @@ class Fixed(Field[float]):
 
 
 @dataclass
-class FixedDecimal(Field[Decimal]):
-    """A fixed-point number return as a Decimal to maintain precision."""
+class DecimalFloat(Field[float]):
+    """A decimal-form rational number returned as a Python float.
+
+    Used where the standard doesn't specify a format for a rational number, but
+    does specify the BCS-N character set, which implicitly forbids scientific
+    notation.
+
+    Examples with size=6:
+
+    - 123       -> "000123"
+    - 12.345    -> "12.345"
+    - -12.345   -> "-12.35"
+    - 12.3456   -> "12.346"
+    - 12345.6   -> "012346"
+    - 999.999   -> "001000"
+    - 999999.9  -> error
+
+    Notes:
+
+    - There is no single canonical format, so "round-tripping" values using
+      `DecimalFloat` may not create byte-identical files.
+    - This ignores any concept of "significant digits" in the representation.
+
+    """
 
     _: KW_ONLY
-
-    # Always show the sign for positive or negative numbers.
-    sign: bool = False
-
-    # The number of digits after the decimal point.
-    ndigits: int = 2
+    pad_char: Literal[" ", "0"] = "0"
 
     @override
-    def encode(self, decoded: Decimal) -> bytes:
-        plus = "+" if self.sign else ""
-        format_str = f"{plus}0{self.size}.{self.ndigits}f"
-        return format(decoded, format_str).encode()
+    def decode(self, encoded: bytes) -> float:
+        return float(encoded.decode("ascii").strip())
 
     @override
-    def decode(self, encoded: bytes) -> Decimal:
-        return Decimal(encoded.decode().strip())
+    def encode(self, decoded: float) -> bytes:
+
+        # The Python format spec doesn't support formatting as decimal-form
+        # number of arbitrary precision in a fixed width, so we must. Start
+        # with the maximum possible precision and return the first
+        # representation that fits when removing trailing zeroes.
+        for precision in range(15, -1, -1):
+            s = f"{decoded:.{precision}f}"
+
+            # Strip trailing zeros (and the decimal if it is hanging).
+            if "." in s:
+                s = s.rstrip("0").rstrip(".")
+
+            # If it fits within the allowed byte size, pad and return.
+            if len(s) <= self.size:
+                # If zero padding, make sure the sign stays at the front.
+                if self.pad_char == "0" and s.startswith("-"):
+                    padded = "-" + s[1:].rjust(self.size - 1, "0")
+                else:
+                    padded = s.rjust(self.size, self.pad_char)
+
+                return padded.encode("ascii")
+
+        msg = f"Can not encode {decoded} in width {self.size}."
+        raise ValueError(msg)
 
 
 @dataclass
-class BcsFloat(Field[float]):
-    """A floating-point number in scientific notation: ±i.nnnnnnE±ee
+class ExpFloat(Field[float]):
+    """A number formatted in scientific notation: ±i.nnnnnnE±ee
 
     Where the number of digits after the decimal point (n) is derived from the
     total width and number of exponent digits (e).
@@ -746,6 +804,77 @@ class BcsFloat(Field[float]):
 
 
 @dataclass
+class FlexFloat(Field[float]):
+    """A number with multiple possible representations.
+
+    Used where the standard allows a numeric field to be represented as either
+    of decimal-form or scientific notation. When serializing, this class uses a
+    format that maximizes precision:
+
+    Examples:
+
+        - With size 12, 12.3456789    -> "0012.3456789"
+        - With size 12, 12.3456789e12 -> "1.2345678e+13"
+
+    Notes:
+
+    - There is no single canonical format, so "round-tripping" values using
+      `FlexFloat` may not create byte-identical files.
+    - This ignores any concept of "significant digits" in the representation.
+
+    Defaults to zero-padding, which natively satisfies both BCS-N requirements
+    and BCS-A allowances without risking string misalignment.
+    """
+
+    _: KW_ONLY
+
+    pad_char: str = "0"
+
+    @override
+    def decode(self, encoded: bytes) -> float:
+        return float(encoded.decode().strip())
+
+    @override
+    def encode(self, decoded: float) -> bytes:
+        align = "=" if self.pad_char == "0" else ">"
+
+        # Start with the maximum precision possible for a float and reduce it
+        # until the number fits in the specified width.
+        for precision in range(15, 0, -1):
+            format_spec = f"{self.pad_char}{align}{self.size}.{precision}g"
+            formatted = format(decoded, format_spec)
+
+            if len(formatted) <= self.size:
+                return formatted.encode("ascii")
+
+        msg = f"Cannot encode {decoded} into {self.size} bytes."
+        raise SerializeError(msg)
+
+
+@dataclass
+class FixedDecimal(Field[Decimal]):
+    """A decimal-form number returned as a `Decimal` to maintain precision."""
+
+    _: KW_ONLY
+
+    # Always show the sign for positive or negative numbers.
+    sign: bool = False
+
+    # The number of digits after the decimal point.
+    ndigits: int = 2
+
+    @override
+    def encode(self, decoded: Decimal) -> bytes:
+        plus = "+" if self.sign else ""
+        format_str = f"{plus}0{self.size}.{self.ndigits}f"
+        return format(decoded, format_str).encode()
+
+    @override
+    def decode(self, encoded: bytes) -> Decimal:
+        return Decimal(encoded.decode().strip())
+
+
+@dataclass
 class IsoDate(Field[date]):
     """A date formatted CCYYMMDD"""
 
@@ -763,22 +892,24 @@ class IsoDate(Field[date]):
 
 @dataclass
 class HMSeconds(Field[float]):
-    """Seconds formatted hhmmss.nnnnnnnnn
+    """Seconds formatted hhmmss.ddd
 
     NOTE:
-    - "123456.000000000" is not 123456 seconds, but 12 hours, 34 minutes, and
-      56 seconds!
+    - "123456.78" is not 123456.78 seconds, but 12 hours, 34 minutes, and 56.78
+      seconds!
     - Python's datetime.timedelta does not have sufficient resolution to
-      represent this number.
+      represent this number for all uses in NITF.
     """
-
-    size: int = field(default=16, init=False)
 
     @override
     def encode(self, decoded: float) -> bytes:
         h = int(decoded // 3600)
         m = int((decoded % 3600) // 60)
         s = decoded % 60
+
+        if self.size == 6:  # noqa: PLR2004
+            return f"{h:02d}{m:02d}{int(s):02d}".encode("ascii")
+
         s_width = self.size - 4
         ndigits = s_width - 3
         return f"{h:02d}{m:02d}{s:0{s_width}.{ndigits}f}".encode("ascii")
@@ -913,6 +1044,15 @@ class Blankable[T](Override[T, None]):
     def __init__(self, rule: Field[T]) -> None:
         blank_bytes = b" " * rule.size
         super().__init__(rule, {blank_bytes: None})
+
+
+@dataclass
+class Dashable[T](Override[T, None]):
+    """All '-' chars in a `Field` return None."""
+
+    def __init__(self, rule: Field[T]) -> None:
+        dash_bytes = b"-" * rule.size
+        super().__init__(rule, {dash_bytes: None})
 
 
 @dataclass

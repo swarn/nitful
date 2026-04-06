@@ -21,7 +21,7 @@ from nitful.dsl.rules import (
     Conditional,
     Constant,
     EmitContext,
-    Fixed,
+    FixedFloat,
     Int,
     IsoDate,
     Item,
@@ -193,15 +193,15 @@ rfa = Struct(
         VarString(Int("TGT_ID_LEN", 2, one_of(0, 17)), name="TGT_ID"),
         VarString(Int("TGT_NAME_LEN", 2), name="TGT_NAME"),
         VarString(Int("TGT_TYPE_LEN", 2), name="TGT_TYPE"),
-        Blankable(Fixed("TGT_LAT", 9, sign=True, ndigits=5)),
-        Blankable(Fixed("TGT_LON", 10, sign=True, ndigits=5)),
-        Blankable(Fixed("TGT_HT", 8, sign=True, ndigits=1)),
+        Blankable(FixedFloat("TGT_LAT", 9, sign=True, ndigits=5)),
+        Blankable(FixedFloat("TGT_LON", 10, sign=True, ndigits=5)),
+        Blankable(FixedFloat("TGT_HT", 8, sign=True, ndigits=1)),
         Blankable(ConcatDatetime(name="TGT_DATE_TIME")),
-        Blankable(Fixed("TGT_AZ", 7, in_range(0, 359.999), ndigits=3)),
+        Blankable(FixedFloat("TGT_AZ", 7, in_range(0, 359.999), ndigits=3)),
         Blankable(
-            Fixed("TGT_ELEV_ANG", 7, in_range(-90.0, 90.0), sign=True, ndigits=3)
+            FixedFloat("TGT_ELEV_ANG", 7, in_range(-90.0, 90.0), sign=True, ndigits=3)
         ),
-        Blankable(Fixed("TGT_BIDEC_ANG", 7, in_range(0, 180.0), ndigits=3)),
+        Blankable(FixedFloat("TGT_BIDEC_ANG", 7, in_range(0, 180.0), ndigits=3)),
         VarString(Int("COLL_REQ_ID_LEN", 3), name="COLL_REQ_ID"),
         VarString(Int("COLLECT_STRAT_LEN", 2), name="COLLECT_STRAT"),
         VarString(Int("COLLECT_TYPE_LEN", 2), name="COLLECT_TYPE"),
@@ -221,8 +221,10 @@ scanner_timing = Struct(
     ScannerTiming,
     [
         IsoDate("DAY_FIRST_LINE_IMAGE"),
-        Fixed("TIME_FIRST_LINE_IMAGE", 15, in_range(0, 86399.999999999), ndigits=9),
-        Fixed(
+        FixedFloat(
+            "TIME_FIRST_LINE_IMAGE", 15, in_range(0, 86399.999999999), ndigits=9
+        ),
+        FixedFloat(
             "TIME_IMAGE_DURATION",
             16,
             in_range(-86399.999999999, 86399.999999999),
@@ -283,9 +285,9 @@ csexrb = Struct(
                 BcsString("PAYLOAD_ID", 6),
                 BcsString("SENSOR_ID", 6),
                 BcsStringEnum("SENSOR_TYPE", 1, enum=SensorType),
-                Blankable(Fixed("GROUND_REF_POINT_X", 12, sign=True, ndigits=2)),
-                Blankable(Fixed("GROUND_REF_POINT_Y", 12, sign=True, ndigits=2)),
-                Blankable(Fixed("GROUND_REF_POINT_Z", 12, sign=True, ndigits=2)),
+                Blankable(FixedFloat("GROUND_REF_POINT_X", 12, sign=True, ndigits=2)),
+                Blankable(FixedFloat("GROUND_REF_POINT_Y", 12, sign=True, ndigits=2)),
+                Blankable(FixedFloat("GROUND_REF_POINT_Z", 12, sign=True, ndigits=2)),
                 Switch(
                     name="timing",
                     get_tag=lambda ctx: ctx["SENSOR_TYPE"],
@@ -295,33 +297,45 @@ csexrb = Struct(
                         SensorType.NONE: Nothing(),
                     },
                 ),
-                Blankable(Fixed("MAX_GSD", 12, nonnegative, ndigits=1)),
-                Blankable(Fixed("ALONG_SCAN_GSD", 12, nonnegative, ndigits=1)),
-                Blankable(Fixed("CROSS_SCAN_GSD", 12, nonnegative, ndigits=1)),
-                Blankable(Fixed("GEO_MEAN_GSD", 12, nonnegative, ndigits=1)),
-                Blankable(Fixed("A_S_VERT_GSD", 12, nonnegative, ndigits=1)),
-                Blankable(Fixed("C_S_VERT_GSD", 12, nonnegative, ndigits=1)),
-                Blankable(Fixed("GEO_MEAN_VERT_GSD", 12, nonnegative, ndigits=1)),
-                Blankable(Fixed("GSD_BETA_ANGLE", 5, in_range(0, 180.0), ndigits=1)),
+                Blankable(FixedFloat("MAX_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(FixedFloat("ALONG_SCAN_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(FixedFloat("CROSS_SCAN_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(FixedFloat("GEO_MEAN_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(FixedFloat("A_S_VERT_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(FixedFloat("C_S_VERT_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(FixedFloat("GEO_MEAN_VERT_GSD", 12, nonnegative, ndigits=1)),
+                Blankable(
+                    FixedFloat("GSD_BETA_ANGLE", 5, in_range(0, 180.0), ndigits=1)
+                ),
                 Blankable(Int("DYNAMIC_RANGE", 5, nonnegative)),
                 Int("NUM_LINES", 7, nonnegative),
                 Int("NUM_SAMPLES", 5, nonnegative),
-                Blankable(Fixed("ANGLE_TO_NORTH", 7, in_range(0, 359.999), ndigits=3)),
-                Blankable(Fixed("OBLIQUITY_ANGLE", 6, in_range(0, 90.0), ndigits=3)),
-                Blankable(Fixed("AZ_OF_OBLIQUITY", 7, in_range(0, 359.999), ndigits=3)),
+                Blankable(
+                    FixedFloat("ANGLE_TO_NORTH", 7, in_range(0, 359.999), ndigits=3)
+                ),
+                Blankable(
+                    FixedFloat("OBLIQUITY_ANGLE", 6, in_range(0, 90.0), ndigits=3)
+                ),
+                Blankable(
+                    FixedFloat("AZ_OF_OBLIQUITY", 7, in_range(0, 359.999), ndigits=3)
+                ),
                 Bool("ATM_REFR_FLAG", size=1),
                 Bool("VEL_ABER_FLAG", size=1),
                 BcsIntEnum("GRD_COVER", 1, enum=GroundCover),
                 BcsIntEnum("SNOW_DEPTH_CATEGORY", 1, enum=SnowDepth),
-                Blankable(Fixed("SUN_AZIMUTH", 7, in_range(0, 359.999), ndigits=3)),
                 Blankable(
-                    Fixed(
+                    FixedFloat("SUN_AZIMUTH", 7, in_range(0, 359.999), ndigits=3)
+                ),
+                Blankable(
+                    FixedFloat(
                         "SUN_ELEVATION", 7, in_range(-90.0, 90.0), sign=True, ndigits=3
                     )
                 ),
-                Blankable(Fixed("PREDICTED_NIIRS", 3, in_range(0.0, 9.0), ndigits=1)),
-                Blankable(Fixed("CIRCL_ERR", 5, nonnegative, ndigits=1)),
-                Blankable(Fixed("LINEAR_ERR", 5, nonnegative, ndigits=1)),
+                Blankable(
+                    FixedFloat("PREDICTED_NIIRS", 3, in_range(0.0, 9.0), ndigits=1)
+                ),
+                Blankable(FixedFloat("CIRCL_ERR", 5, nonnegative, ndigits=1)),
+                Blankable(FixedFloat("LINEAR_ERR", 5, nonnegative, ndigits=1)),
                 Blankable(Int("CLOUD_COVER", 3)),
                 Conditional(
                     condition=lambda ctx: ctx.get("SENSOR_TYPE") == SensorType.FRAMER,

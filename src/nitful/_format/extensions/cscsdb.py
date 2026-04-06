@@ -4,7 +4,6 @@ from enum import IntEnum
 from nitful._format.des import register_des
 from nitful._format.shared import ReservedExtensions, Segment, security_spec
 from nitful.dsl.rules import (
-    BcsFloat,
     BcsIntEnum,
     BcsString,
     Bool,
@@ -12,7 +11,8 @@ from nitful.dsl.rules import (
     Computed,
     Constant,
     Context,
-    Fixed,
+    ExpFloat,
+    FixedFloat,
     HMSeconds,
     Int,
     IsoDate,
@@ -86,12 +86,12 @@ direct_cover: Variant[int, DirectCovariance] = Variant(
                     PrefixedList(
                         name="adjustments",
                         count=Int("NUM_PARA", 4, positive),
-                        body=BcsFloat("ADJ", 21, edigits=2),
+                        body=ExpFloat("ADJ", 21, edigits=2),
                     ),
                     SizedList(
                         name="covariances",
                         count=num_covar_elems("adjustments"),
-                        body=BcsFloat("ERRCOV_C4", 21, edigits=2),
+                        body=ExpFloat("ERRCOV_C4", 21, edigits=2),
                     ),
                 ],
             ),
@@ -103,10 +103,10 @@ direct_cover: Variant[int, DirectCovariance] = Variant(
 csm_four_param = Struct(
     CsmFourParam,
     [
-        Fixed("FP_A", 8, in_range(0.000001, 1.0), ndigits=6),
-        Fixed("FP_ALPHA", 8, in_range(0.0, 1.0), ndigits=6),
-        Fixed("FP_BETA", 9, in_range(0.0, 10.0), ndigits=6),
-        BcsFloat("FP_T", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
+        FixedFloat("FP_A", 8, in_range(0.000001, 1.0), ndigits=6),
+        FixedFloat("FP_ALPHA", 8, in_range(0.0, 1.0), ndigits=6),
+        FixedFloat("FP_BETA", 9, in_range(0.0, 10.0), ndigits=6),
+        ExpFloat("FP_T", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
     ],
 )
 
@@ -120,8 +120,8 @@ piecewise_linear = Struct(
             body=Struct(
                 PlSegment,
                 [
-                    Fixed("PL_MAX_COR", 8, in_range(0.0, 1.0), ndigits=6),
-                    BcsFloat("PL_TAU_MAX_COR", 21, nonnegative, edigits=2),
+                    FixedFloat("PL_MAX_COR", 8, in_range(0.0, 1.0), ndigits=6),
+                    ExpFloat("PL_TAU_MAX_COR", 21, nonnegative, edigits=2),
                 ],
             ),
         )
@@ -132,9 +132,9 @@ piecewise_linear = Struct(
 damped_cosine = Struct(
     DampedCosine,
     [
-        Fixed("DC_A", 8, in_range(0.000001, 1.0), ndigits=6),
-        BcsFloat("DC_T", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
-        BcsFloat("DC_P", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
+        FixedFloat("DC_A", 8, in_range(0.000001, 1.0), ndigits=6),
+        ExpFloat("DC_T", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
+        ExpFloat("DC_P", 21, in_range(1e-06, 9.99999999999999e99), edigits=2),
     ],
 )
 
@@ -170,7 +170,7 @@ spdcf = Struct(
                         BcsIntEnum("SPDCF_FAM", 1, enum=SpdcfFamily),
                         get_spdcf_fam,
                     ),
-                    Fixed("SPDCF_WEIGHT", 5, in_range(0.0, 1.0), ndigits=3),
+                    FixedFloat("SPDCF_WEIGHT", 5, in_range(0.0, 1.0), ndigits=3),
                     Switch(
                         name="details",
                         get_tag=lambda ctx: ctx["SPDCF_FAM"],
@@ -195,9 +195,9 @@ unmodeled_error = Struct(
             rows_rule=Int("LINE_DIMENSION", 3, in_range(1, 999)),
             cols_rule=Int("SAMPLE_DIMENSION", 2, in_range(1, 99)),
             body=Vector([
-                BcsFloat("URR", 21, edigits=2),
-                BcsFloat("URC", 21, edigits=2),
-                BcsFloat("UCC", 21, edigits=2),
+                ExpFloat("URR", 21, edigits=2),
+                ExpFloat("URC", 21, edigits=2),
+                ExpFloat("UCC", 21, edigits=2),
             ]),
         ),
         Int("LINE_SPDCF", 2, positive),
@@ -209,10 +209,10 @@ ts_group1 = Struct(
     TsGroup1,
     [
         IsoDate("CORR_REF_DATE_TS"),
-        HMSeconds("CORR_REF_TIME_TS"),
-        BcsFloat("TSRR", 21, edigits=2),
-        BcsFloat("TSRC", 21, edigits=2),
-        BcsFloat("TSCC", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TS", 16),
+        ExpFloat("TSRR", 21, edigits=2),
+        ExpFloat("TSRC", 21, edigits=2),
+        ExpFloat("TSCC", 21, edigits=2),
         Int("TS_SPDCF", 2, positive),
     ],
 )
@@ -221,12 +221,12 @@ ts_group2 = Struct(
     TsGroup2,
     [
         IsoDate("CORR_REF_DATE_TSP"),
-        HMSeconds("CORR_REF_TIME_TSP"),
-        BcsFloat("TS_POS_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TSP", 16),
+        ExpFloat("TS_POS_COV", 21, edigits=2),
         Int("TS_POS_SPDCF", 2, positive),
         IsoDate("CORR_REF_DATE_TSA"),
-        HMSeconds("CORR_REF_TIME_TSA"),
-        BcsFloat("TS_ATT_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TSA", 16),
+        ExpFloat("TS_ATT_COV", 21, edigits=2),
         Int("TS_ATT_SPDCF", 2, positive),
     ],
 )
@@ -235,13 +235,13 @@ ts_group3 = Struct(
     TsGroup3,
     [
         IsoDate("CORR_REF_DATE_TS"),
-        HMSeconds("CORR_REF_TIME_TS"),
-        BcsFloat("TS_POS_COV", 21, edigits=2),
-        BcsFloat("TS_POS_ATT_COV", 21, edigits=2),
-        BcsFloat("TS_POS_FL_COV", 21, edigits=2),
-        BcsFloat("TS_ATT_COV", 21, edigits=2),
-        BcsFloat("TS_ATT_FL_COV", 21, edigits=2),
-        BcsFloat("TS_FL_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TS", 16),
+        ExpFloat("TS_POS_COV", 21, edigits=2),
+        ExpFloat("TS_POS_ATT_COV", 21, edigits=2),
+        ExpFloat("TS_POS_FL_COV", 21, edigits=2),
+        ExpFloat("TS_ATT_COV", 21, edigits=2),
+        ExpFloat("TS_ATT_FL_COV", 21, edigits=2),
+        ExpFloat("TS_FL_COV", 21, edigits=2),
         Int("TS_SPDCF", 2, positive),
     ],
 )
@@ -250,14 +250,14 @@ ts_group4 = Struct(
     TsGroup4,
     [
         IsoDate("CORR_REF_DATE_TSPA"),
-        HMSeconds("CORR_REF_TIME_TSPA"),
-        BcsFloat("TS_POS_COV", 21, edigits=2),
-        BcsFloat("TS_POS_ATT_COV", 21, edigits=2),
-        BcsFloat("TS_ATT_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TSPA", 16),
+        ExpFloat("TS_POS_COV", 21, edigits=2),
+        ExpFloat("TS_POS_ATT_COV", 21, edigits=2),
+        ExpFloat("TS_ATT_COV", 21, edigits=2),
         Int("TS_PA_SPDCF", 2, positive),
         IsoDate("CORR_REF_DATE_TSFL"),
-        HMSeconds("CORR_REF_TIME_TSFL"),
-        BcsFloat("TS_FL_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TSFL", 16),
+        ExpFloat("TS_FL_COV", 21, edigits=2),
         Int("TS_FL_SPDCF", 2, positive),
     ],
 )
@@ -266,16 +266,16 @@ ts_group5 = Struct(
     TsGroup5,
     [
         IsoDate("CORR_REF_DATE_TSP"),
-        HMSeconds("CORR_REF_TIME_TSP"),
-        BcsFloat("TS_POS_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TSP", 16),
+        ExpFloat("TS_POS_COV", 21, edigits=2),
         Int("TS_POS_SPDCF", 2, positive),
         IsoDate("CORR_REF_DATE_TSA"),
-        HMSeconds("CORR_REF_TIME_TSA"),
-        BcsFloat("TS_ATT_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TSA", 16),
+        ExpFloat("TS_ATT_COV", 21, edigits=2),
         Int("TS_ATT_SPDCF", 2, positive),
         IsoDate("CORR_REF_DATE_TSFL"),
-        HMSeconds("CORR_REF_TIME_TSFL"),
-        BcsFloat("TS_FL_COV", 21, edigits=2),
+        HMSeconds("CORR_REF_TIME_TSFL", 16),
+        ExpFloat("TS_FL_COV", 21, edigits=2),
         Int("TS_FL_SPDCF", 2, positive),
     ],
 )
@@ -297,7 +297,9 @@ io_calibration = Struct(
         PrefixedList(
             name="focal_lengths",
             count=Int("NUM_SETS_CAL_AP", 2, positive),
-            body=Fixed("FOCAL_LENGTH_CAL", 11, in_range(0.0, 99.99999999), ndigits=8),
+            body=FixedFloat(
+                "FOCAL_LENGTH_CAL", 11, in_range(0.0, 99.99999999), ndigits=8
+            ),
         ),
         PrefixedList(
             name="groups",
@@ -306,7 +308,7 @@ io_calibration = Struct(
                 IoCpg,
                 [
                     IsoDate("CORR_REF_DATE_IO"),
-                    HMSeconds("CORR_REF_TIME_IO"),
+                    HMSeconds("CORR_REF_TIME_IO", 16),
                     PrefixedList(
                         name="parameters",
                         count=Int("N1CAL", 2, in_range(1, 11)),
@@ -317,7 +319,7 @@ io_calibration = Struct(
                         count=lambda ctx: len(ctx["focal_lengths"]),
                         body=SizedList(
                             num_covar_elems("parameters"),
-                            BcsFloat("ERRCOV_C3", 21, edigits=2),
+                            ExpFloat("ERRCOV_C3", 21, edigits=2),
                         ),
                     ),
                     BcsIntEnum("CAL_INTERP", 1, enum=InterpType),
@@ -342,8 +344,8 @@ post_sub = Struct(
     PostSub,
     [
         IsoDate("POST_START_DATE"),
-        Fixed("POST_START_TIME", 15, in_range(0, 86399.999999999), ndigits=9),
-        Fixed("POST_DT", 13, in_range(0, 999.999999999), ndigits=9),
+        FixedFloat("POST_START_TIME", 15, in_range(0, 86399.999999999), ndigits=9),
+        FixedFloat("POST_DT", 13, in_range(0, 999.999999999), ndigits=9),
         Int("NUM_POSTS", 3, in_range(2, 999)),
         Computed(Bool("COMMON_POSTS_COV"), lambda ctx: len(ctx["covar"]) == 1),
         SizedList(
@@ -351,7 +353,7 @@ post_sub = Struct(
             count=post_covar_count,
             body=SizedList(
                 num_covar_elems("parameters"),
-                BcsFloat("ERRCOV_C2", 21, edigits=2),
+                ExpFloat("ERRCOV_C2", 21, edigits=2),
             ),
         ),
         BcsIntEnum("POST_INTERP", 1, enum=InterpType),
@@ -412,7 +414,7 @@ basic_sub = Struct(
         SizedList(
             name="covar",
             count=num_covar_elems("parameters"),
-            body=BcsFloat("ERRCOV_C1", 21, edigits=2),
+            body=ExpFloat("ERRCOV_C1", 21, edigits=2),
         ),
         Optional(
             name="platform_spdcfs",
@@ -471,7 +473,7 @@ core_set = Struct(
                 CPGroup,
                 [
                     IsoDate("CORR_REF_DATE"),
-                    HMSeconds("CORR_REF_TIME"),
+                    HMSeconds("CORR_REF_TIME", 16),
                     PrefixedList(
                         name="parameters",
                         count=Int("NUM_ADJ_PARM", 1, in_range(1, 7)),
