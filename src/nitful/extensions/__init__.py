@@ -8,6 +8,7 @@ from . import (
     cssfab,
     ichipb,
     rpc00b,
+    sensrb,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "cssfab",
     "ichipb",
     "rpc00b",
+    "sensrb",
 ]

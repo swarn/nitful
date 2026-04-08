@@ -7,4 +7,5 @@ from . import (
     cssfab,
     ichipb,
     rpc00b,
+    sensrb,
 )
