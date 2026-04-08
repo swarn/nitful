@@ -1,22 +1,23 @@
 from pathlib import Path
 from typing import BinaryIO
 
-from ._format.file import read_file as _read_format
+from ._format.file import read_file as _read_file
 from ._format.file import to_fields as _to_fields
 from .core.file import NitfFile
 from .dsl.io import dump_fields as _dump_fields
 from .dsl.io import write_fields as _write_fields
+from .dsl.rules import ParseContext as _ParseContext
 
 
 def read(fd: BinaryIO) -> NitfFile:
     """Reads a NitfFile object from an open binary stream."""
-    return _read_format(fd)
+    return _read_file(fd, _ParseContext())
 
 
 def load(filepath: str | Path) -> NitfFile:
     """Convenience function to open and read a nitf file from disk."""
     with open(filepath, "rb") as fd:
-        return _read_format(fd)
+        return read(fd)
 
 
 def write(nitf: NitfFile, fd: BinaryIO) -> None:
@@ -32,15 +33,14 @@ def save(nitf: NitfFile, filepath: str | Path) -> None:
 
 
 def dump(
-    nitf: NitfFile,
+    source: str | Path | NitfFile,
     *,
     header: bool = False,
     image_nums: list[int] | None = None,
     tre_names: list[str] | None = None,
     des_names: list[str] | None = None,
 ) -> str:
-    """
-    Convert a parsed NITF file into a human-readable string.
+    """Convert a NITF file or model into a human-readable string.
 
     If no filter arguments are provided, the entire file structure is dumped.
     If any filters are specified, the output is restricted strictly to the
@@ -49,8 +49,9 @@ def dump(
 
     Parameters
     ----------
-    nitf : NitfFile
-        The parsed NITF file object to dump.
+    source : str, Path, or NitfFile
+        If a str or Path, return fields read during parsing. If an NitfFile,
+        return the fields that would be written during serialization.
     header : bool, optional
         Include the main file header in the output. Default is False.
     image_nums : list of int, optional
@@ -65,7 +66,15 @@ def dump(
     str
         The formatted text representation of the parsed NITF fields.
     """
-    fields = _to_fields(nitf)
+    if isinstance(source, NitfFile):
+        fields = _to_fields(source)
+    else:
+        with open(source, "rb") as fd:
+            ctx = _ParseContext()
+            _read_file(fd, ctx)
+
+        fields = [item for (item, _) in ctx.fields]
+
     return _dump_fields(
         fields,
         header=header,

@@ -62,7 +62,6 @@ def read_tre_list(
     fd: BinaryIO, len_name: str, ofl_name: str, ctx: ParseContext
 ) -> list[TRE]:
     tres: list[TRE] = []
-    ctx = ParseContext()
     length = Int(len_name, 5).parse(fd, ctx)
     if length > 0:
         overflow = Int(ofl_name, 3).parse(fd, ctx)

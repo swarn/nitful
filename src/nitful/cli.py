@@ -23,13 +23,11 @@ def _strip_command(args: argparse.Namespace) -> None:
 
 def _dump_command(args: argparse.Namespace) -> None:
     """Dump the file as text, optionally filtering for specific extensions."""
-    nitf = nitful.load(args.input)
-
     out = sys.stdout if not args.output else open(args.output, "w")  # noqa: SIM115
 
     try:
         output_text = nitful.dump(
-            nitf,
+            args.input,
             header=args.header,
             image_nums=args.image,
             tre_names=args.tre,

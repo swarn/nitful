@@ -114,8 +114,7 @@ header_spec = Group(
 )
 
 
-def read_file(fd: BinaryIO) -> NitfFile:
-    ctx = ParseContext()
+def read_file(fd: BinaryIO, ctx: ParseContext) -> NitfFile:
     header = header_spec.parse(fd, ctx)
 
     udhd = read_tre_list(fd, "UDHDL", "UDHOFL", ctx)

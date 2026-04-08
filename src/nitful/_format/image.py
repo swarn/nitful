@@ -209,7 +209,7 @@ def read_image_segment(
 ) -> ImageSegment:
     start_pos = fd.tell()
 
-    header = Group(image_head_spec).parse(fd, ParseContext())
+    header = Group(image_head_spec).parse(fd, ctx)
 
     udid = read_tre_list(fd, "UDIDL", "UDOFL", ctx)
     ixshd = read_tre_list(fd, "IXSHDL", "IXSOFL", ctx)
@@ -223,6 +223,10 @@ def read_image_segment(
         path = fd.name
 
     data_proxy = DeferredImageData(path=path, offset=fd.tell(), length=li)
+
+    # Add a field entry to the context parsing history to represent the image data.
+    ctx.fields.append((Item("IMAGE DATA", data_proxy), fd.tell()))
+
     fd.seek(li, SEEK_CUR)
 
     valid_fields = {f.name for f in fields(ImageSegment)}

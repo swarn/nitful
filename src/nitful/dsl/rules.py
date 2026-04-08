@@ -127,7 +127,7 @@ For example, imagine a contrived NITF spec where a point is defined:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections import ChainMap, deque
+from collections import ChainMap
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import KW_ONLY, InitVar, dataclass, field, fields
@@ -281,8 +281,8 @@ class ParseContext(Context):
     def __init__(self, init: dict[str, Any] | None = None) -> None:
         super().__init__(init)
 
-        # Recently-processed fields (byte offset, name, value), to add context
-        self.fields: deque[tuple[int | None, str, Any]] = deque(maxlen=5)
+        # All processed fields as (Item, offset).
+        self.fields: list[tuple[Item, int]] = []
 
     @override
     def format_fields(self) -> str:
@@ -290,7 +290,8 @@ class ParseContext(Context):
             return ""
 
         return "\n\nRecent fields:\n" + "\n".join(
-            f"  [{off} (0x{off:04X})] {name}: {val!r}" for off, name, val in self.fields
+            f"  [{offset} (0x{offset:04X})] {item.name}: {item.value!r}"
+            for item, offset in self.fields[-5:]
         )
 
 
@@ -308,7 +309,7 @@ class EmitContext(Context):
         super().__init__(init)
 
         # Recently-processed fields (name, value).
-        self.fields: deque[tuple[str, Any]] = deque(maxlen=5)
+        self.fields: list[Item] = []
 
     @override
     def format_fields(self) -> str:
@@ -316,7 +317,7 @@ class EmitContext(Context):
             return ""
 
         return "\n\nRecent fields:\n" + "\n".join(
-            f"  {name}: {val!r}" for name, val in self.fields
+            f"  {item.name}: {item.value!r}" for item in self.fields[-5:]
         )
 
 
@@ -422,8 +423,10 @@ class Field[T](Rule[T], ABC):
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
         start = fd.tell()
-        val = self.decode(fd.read(self.size))
-        ctx.fields.append((start, self.name + ctx.format_subscripts(), val))
+        read_bytes = fd.read(self.size)
+        val = self.decode(read_bytes)
+        full_name = self.name + ctx.format_subscripts()
+        ctx.fields.append((Item(full_name, read_bytes), start))
         return val
 
     @override
@@ -441,9 +444,10 @@ class Field[T](Rule[T], ABC):
             raise ValueError(msg)
 
         full_name = self.name + ctx.format_subscripts()
-        ctx.fields.append((full_name, value))
+        item = Item(full_name, encoded)
+        ctx.fields.append(item)
 
-        return [Item(full_name, encoded)]
+        return [item]
 
     @abstractmethod
     def encode(self, decoded: T) -> bytes:
