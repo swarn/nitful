@@ -1,53 +1,66 @@
 # `nitful`: The Useful NITF Library
 
-Read and write NITF (aka JBF) files.
+`nitful` is a zero-dependency Python library and command-line utility for
+reading, writing, and manipulating National Imagery Transmission Format (NITF /
+JBF) files.
 
-Very much a work in progress.
+> **Status: Alpha.** `nitful` is highly functional, but the API may still
+> undergo changes. The library currently parses standard headers and a select
+> number of extensions.
 
 **Features**
 
-- Rich data: Headers and extensions are parsed into native, nested Python
-  Dataclasses, enabling type-checking and IDE autocompletion.
+- **Command-Line Tool:** Inspect, dump, filter, or strip NITF metadata directly
+  from the command line.
+- **Rich Data Structures:** Headers and extensions are parsed into native,
+  nested Python Dataclasses, enabling type-checking and IDE autocompletion.
+- **Lazy Loading:** Image data is skipped and can be loaded later, so that
+  parsing even massive NITF files has low memory overhead.
+- **Read-Modify-Write:** Read an image, modify fields, add TREs/DESs, and
+  seamlessly write a new image.
+- **Zero Dependencies:** Written in pure Python.
 
-- Lazy: Image data is skipped and can be loaded later, so parsing has low
-  memory overhead.
+---
 
-- Read-modify-write: Read an image, modify fields, add TREs/DESs, and write a
-  new image.
+## Table of Contents
+- [Installation](#installation)
+- [Command-Line Usage](#command-line-usage)
+- [Python API: Reading Data](#python-api-reading-data)
+- [Python API: Manipulating Data](#python-api-manipulating-data)
+- [Working with Image Data](#working-with-image-data)
+  - [Numpy](#pixels-in-numpy)
+  - [Pyvips](#pixels-in-pyvips)
+- [Supported Extensions](#supported-extensions)
 
-- Optional command-line interface: Quickly dump header data.
-
-- Zero dependencies.
-
-**Supported Extensions**
-
-The list of supported SDEs is quite short right now; see the
-`nitful/extensions` directory. Note that an extension doesn't need to be
-supported to read or modify a file if you aren't reading or modifying that
-particular extension.
+---
 
 
 ## Installation
 
-`nitful` is a pure Python package with zero dependencies. While it is not yet
-on PyPI, you can install it directly from the repository.
+`nitful` is available on PyPI and can be installed with standard package
+managers.
 
-For library use within a Python project, you can install it via `pip`, which
-also provides the command-line tool:
+For library use within a Python project:
 
 ```sh
-pip install git+https://github.com/swarn/nitful.git
+pip install nitful
 ```
 
 If you strictly want to use `nitful` as a command-line tool, you can install it
-with a tool like [`pipx`][pipx] to keep your environment clean:
+with [pipx][pipx]:
 
 ```sh
-pipx install git+https://github.com/swarn/nitful.git
+pipx install nitful
 ```
 
-Or, you can clone the repository and run `pip install -e ./nitful` for
-development.
+**Development Installation**
+If you want to run the latest unreleased code or contribute to the project, you
+can install directly from the repository:
+```sh
+git clone [https://github.com/swarn/nitful.git](https://github.com/swarn/nitful.git)
+cd nitful
+pip install -e .
+```
 
 [pipx]: https://pipx.pypa.io/stable/
 
@@ -88,10 +101,11 @@ is useful for sharing files for debugging or metadata analysis:
 nitful strip image.ntf stripped_metadata.ntf
 ```
 
-## Reading NITF Data
+
+## Python API: Reading Data
 
 `nitful` parses the binary headers into type-annotated Python dataclasses.
-Image data is not eagerly loaded, so reading a large NITF files has low memory
+Image data is not eagerly loaded, so reading large NITF files has low memory
 overhead.
 
 ```python
@@ -129,7 +143,7 @@ print(f"First ephemeris Vector: {csephb.ephemerides[0]}")
 ```
 
 
-## Manipulating NITF Data
+## Python API: Manipulating Data
 
 Read-modify-write workflows are easy:
 
@@ -152,17 +166,16 @@ csephb.ephemerides[0][0] += 10.5
 nitful.save(nitf, "modified.ntf")
 ```
 
-## Dealing with Image Data
+## Working with Image Data
 
-`nitful` does not include image processing or data science libraries (like
-`numpy` or `pyvips`) in its dependencies, but can easily work with them.
+`nitful` avoids dependencies like `numpy` or `pyvips`, but can work with them.
 
 By default, `nitful` skips reading pixel data, but makes it available via the
 `DeferredImageData` class. You can read the pixels as raw bytes, but it's
 usually more useful to use a library.
 
-All of the examples below assume you've loaded a NITF file with at least one
-image segment:
+*All examples below assume you've loaded a NITF file with at least one image
+segment.*
 
 ```python
 import nitful
@@ -200,7 +213,7 @@ print(np.mean(pixels[:100, :100]))
 
 ### Pixels in pyvips
 
-`pyvips` is a good library for dealing with large and/or compressed images:
+`pyvips` is a good library for handling large and/or compressed images:
 
 ```python
 import pyvips
@@ -233,5 +246,13 @@ nitf.image_segments[0].data = pixels
 nitful.save(nitf, 'new_file.ntf')
 ```
 
-Note that it's up to you to correctly configure the extensive image segment
-metadata.
+*Note: It is up to you to correctly configure the image segment metadata (NROWS, ABPP, etc.) when modifying pixel data.*
+
+
+## Supported Extensions
+
+The list of explicitly supported SDEs is small but growing; see the `nitful/extensions` directory.
+
+Crucially, an extension does not need to be supported by `nitful` for you to
+read or modify the rest of the file. Unknown extensions are safely preserved as
+raw bytes and written back out identically.
