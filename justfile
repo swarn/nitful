@@ -1,9 +1,10 @@
+set dotenv-load := true
 set shell := ["bash", "-uc"]
 
 @default:
     just --list
 
-version := `python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"`
+version := `uv version --short`
 
 publish:
     @echo "The version in pyproject.toml is currently: v{{version}}"
