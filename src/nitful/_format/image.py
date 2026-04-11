@@ -21,6 +21,7 @@ from nitful.dsl.rules import (
     BcsStringEnum,
     BinaryInt,
     Combinator,
+    Conditional,
     Constant,
     EcsString,
     EmitContext,
@@ -58,29 +59,6 @@ class NumBands(Combinator[int]):
         nbands = Int("NBANDS", 1).to_fields(0, ctx)
         xbands = Int("XBANDS", 4).to_fields(value, ctx)
         return nbands + xbands
-
-
-@dataclass
-class CompressionSpec(Combinator[Compression]):
-
-    @override
-    def _read(self, fd: BinaryIO, ctx: ParseContext) -> Compression:
-        ic = BcsString("IC", 2).parse(fd, ctx)
-        kwargs = {"IC": ic}
-
-        if ic not in {"NC", "NM"}:
-            kwargs["COMRAT"] = BcsString("COMRAT", 4).parse(fd, ctx)
-
-        return Compression(**kwargs)
-
-    @override
-    def _emit(self, value: Compression, *, ctx: EmitContext) -> list[Item]:
-        out_fields = BcsString("IC", 2).to_fields(value.IC, ctx)
-
-        if value.IC not in {"NC", "NM"}:
-            out_fields += BcsString("COMRAT", 4).to_fields(value.COMRAT, ctx)
-
-        return out_fields
 
 
 @dataclass
@@ -129,7 +107,10 @@ class LutsSpec(Combinator[list[list[int]]]):
         nelut = Int("NELUT", 5).parse(fd, ctx)
 
         lut_spec = BinaryInt("LUTD", 1)
-        return [[lut_spec.parse(fd, ctx) for _ in range(nelut)] for _ in range(nluts)]
+        return [
+            [lut_spec.parse(fd, ctx) for _ in ctx.iterate(range(nelut))]
+            for _ in ctx.iterate(range(nluts))
+        ]
 
     @override
     def _emit(self, value: list[list[int]], *, ctx: EmitContext) -> list[Item]:
@@ -143,14 +124,28 @@ class LutsSpec(Combinator[list[list[int]]]):
         out += Int("NELUT", 5).to_fields(nelut, ctx)
 
         if not all(len(lut) == nelut for lut in value):
-            raise ValueError
+            msg = "All LUTs must have the same length."
+            raise ValueError(msg)
 
-        for lut in value:
-            for entry in lut:
+        for lut in ctx.iterate(value):
+            for entry in ctx.iterate(lut):
                 out += BinaryInt("LUTD", 1).to_fields(entry, ctx)
 
         return out
 
+
+compression = Struct(
+    name="compression",
+    model_cls=Compression,
+    rules=[
+        BcsString("IC", 2),
+        Conditional(
+            name="COMRAT",
+            condition=lambda ctx: ctx["IC"] not in {"NC", "NM"},
+            body=BcsString("COMRAT", 4),
+        ),
+    ],
+)
 
 image_head_spec: list[Rule[Any]] = [
     Constant(BcsString("IM", 2), "IM"),
@@ -174,7 +169,7 @@ image_head_spec: list[Rule[Any]] = [
         count=Int("NICOM", 1, nonnegative),
         body=EcsString("ICOM", 80),
     ),
-    CompressionSpec(name="compression"),
+    compression,
     PrefixedList(
         name="bands",
         count=NumBands(),
