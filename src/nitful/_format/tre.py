@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import BinaryIO, cast
 
@@ -24,7 +24,7 @@ def register_tre[T: TRE](tag: str, spec: Struct[T]) -> None:
 
 
 @contextmanager
-def disable_tre_parsing() -> Iterator[None]:
+def disable_tre_parsing() -> Generator[None]:
     saved_read = tre_read_registry.copy()
     saved_write = tre_write_registry.copy()
 

@@ -138,8 +138,9 @@ def test_variant_routing_success():
     assert parsed == TextClass("FOO")
 
     items = variant_spec.to_fields(NumericClass(42), EmitContext())
-    emitted_bytes = b"".join(i.value for i in items)
-    assert emitted_bytes == b"N042"
+    out_stream = io.BytesIO()
+    write_fields(items, out_stream)
+    assert out_stream.getvalue() == b"N042"
 
 
 def test_variant_routing_failures():

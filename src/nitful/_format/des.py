@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import BinaryIO, cast
 
@@ -27,7 +27,7 @@ def register_des[T: DES](desid: str, desver: int, spec: Segment[T]) -> None:
 
 
 @contextmanager
-def disable_des_parsing() -> Iterator[None]:
+def disable_des_parsing() -> Generator[None]:
     saved_read = des_read_registry.copy()
     saved_write = des_write_registry.copy()
 

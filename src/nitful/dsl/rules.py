@@ -128,7 +128,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import ChainMap
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import KW_ONLY, InitVar, dataclass, field, fields
 from dataclasses import Field as DataclassField
@@ -209,7 +209,7 @@ class Context(ABC):
         return self._contexts.get(key, default)
 
     @contextmanager
-    def scope(self, init: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+    def scope(self, init: dict[str, Any] | None = None) -> Generator[dict[str, Any]]:
         """Enter a new local scope and yield it."""
         local_scope = init if init is not None else {}
         self._contexts.maps.insert(0, local_scope)
@@ -1199,12 +1199,12 @@ class SizedList[T](Combinator[list[T]]):
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[T]:
-        count = self.count(ctx) if callable(self.count) else self.count
+        count = self.count if isinstance(self.count, int) else self.count(ctx)
         return [self.body.parse(fd, ctx) for _ in ctx.iterate(range(count))]
 
     @override
     def _emit(self, value: list[T], *, ctx: EmitContext) -> list[Item]:
-        count = self.count(ctx) if callable(self.count) else self.count
+        count = self.count if isinstance(self.count, int) else self.count(ctx)
 
         if len(value) != count:
             msg = f"Expected {count} items, got {len(value)}"
@@ -1438,17 +1438,17 @@ class Variant[TagType, ValueType](Combinator[ValueType]):
     _rule_for_tag: dict[TagType, Rule[Any]] = field(init=False)
     _conditions: list[tuple[TagType, _Condition]] = field(init=False)
 
-    def __post_init__(self, branches: Iterable[Case[TagType, Any]]) -> None:
+    def __post_init__(self, cases: Iterable[Case[TagType, Any]]) -> None:
         self._rule_for_tag = {}
         self._conditions = []
 
-        for branch in branches:
-            if branch.tag in self._rule_for_tag:
-                msg = f"Duplicate tag {branch.tag!r} in Variant branches."
+        for case in cases:
+            if case.tag in self._rule_for_tag:
+                msg = f"Duplicate tag {case.tag!r} in Variant branches."
                 raise DefinitionError(msg)
 
-            self._rule_for_tag[branch.tag] = branch.rule
-            self._conditions.append((branch.tag, branch.condition))
+            self._rule_for_tag[case.tag] = case.rule
+            self._conditions.append((case.tag, case.condition))
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> ValueType:
@@ -1571,7 +1571,7 @@ class Switch[TagType, ValueType](Combinator[ValueType]):
     """
 
     get_tag: Callable[[Context], TagType]
-    cases: dict[TagType, Rule[ValueType]]
+    cases: Mapping[TagType, Rule[Any]]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> ValueType:
@@ -1581,7 +1581,7 @@ class Switch[TagType, ValueType](Combinator[ValueType]):
             msg = f"Unrecognized tag {tag!r} for Switch."
             raise ValueError(msg)
 
-        return self.cases[tag].parse(fd, ctx)
+        return cast(ValueType, self.cases[tag].parse(fd, ctx))
 
     @override
     def _emit(self, value: ValueType, *, ctx: EmitContext) -> list[Item]:

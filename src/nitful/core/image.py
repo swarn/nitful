@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import BinaryIO
 
@@ -53,7 +53,7 @@ class ImageSegment:
     )
 
 
-class PixelType(Enum):
+class PixelType(StrEnum):
     INTEGER = "INT"
     BOOLEAN = "B"
     SIGNED = "SI"
@@ -61,7 +61,7 @@ class PixelType(Enum):
     COMPLEX = "C"
 
 
-class ImageType(Enum):
+class ImageType(StrEnum):
     NODISPLAY = "NODISPLY"
     MONO = "MONO"
     RGB = "RGB"
@@ -73,7 +73,7 @@ class ImageType(Enum):
     MULTIBAND = "MULTI"
 
 
-class PixelJustification(Enum):
+class PixelJustification(StrEnum):
     LEFT = "L"
     RIGHT = "R"
 
@@ -96,7 +96,7 @@ class Coords:
 @dataclass
 class Compression:
     IC: str = "NC"
-    COMRAT: str = ""
+    COMRAT: str | None = None
 
 
 @dataclass

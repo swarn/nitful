@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import IntEnum
 
 from nitful.core.common import TRE
 
@@ -32,11 +32,11 @@ class ICHIPB(TRE):
     FI_COL: int
 
 
-class TransformFlag(Enum):
+class TransformFlag(IntEnum):
     PROVIDED = 0
     NOT = 1
 
 
-class AnamorphicCorrection(Enum):
+class AnamorphicCorrection(IntEnum):
     NONE = 0
     APPLIED = 1
