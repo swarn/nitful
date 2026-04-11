@@ -8,6 +8,7 @@ TEST_DATA_DIR = Path(__file__).parent / "data"
 
 fake_pixels = bytes.fromhex("DEADBEEF")
 
+
 def test_strip_replaces_image_data():
     input_file = TEST_DATA_DIR / "strict" / "two_images_jpeg.ntf"
 

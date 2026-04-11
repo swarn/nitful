@@ -196,4 +196,3 @@ class TelescopeOpticsTimeTransform:
     TELE_TIME: float
     transform: list[float]
     varying_io_m: list[float]
-
