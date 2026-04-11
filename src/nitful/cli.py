@@ -3,22 +3,11 @@ import sys
 
 import nitful
 
-# Priting is okay for the command line.
-# ruff: noqa: T201
-
 
 def _strip_command(args: argparse.Namespace) -> None:
     """Remove image data to create a metadata-only file."""
-    print(f"Loading {args.input}...")
-    nitf = nitful.load(args.input)
-
-    # Replace all deferred payloads with a sentinel byte sequence.
-    for segment in nitf.image_segments:
-        segment.data = bytes.fromhex("DEADBEEF")
-
-    print(f"Writing stripped file to {args.output}... ")
-    nitful.save(nitf, args.output)
-    print("Done.")
+    with open(args.input, "rb") as infile, open(args.output, "wb") as outfile:
+        nitful.strip(infile, outfile)
 
 
 def _dump_command(args: argparse.Namespace) -> None:

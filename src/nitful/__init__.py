@@ -7,7 +7,7 @@ from . import core, extensions
 from ._format import extensions as _
 
 # Expose primary API functions.
-from .api import dump, load, read, save, write
+from .api import dump, load, read, save, strip, write
 
 # Expose core exceptions and root file model.
 from .core.errors import NitfError, ParseError, SerializeError
@@ -24,5 +24,6 @@ __all__ = [
     "load",
     "read",
     "save",
+    "strip",
     "write",
 ]

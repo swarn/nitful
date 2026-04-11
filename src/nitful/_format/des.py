@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import BinaryIO, cast
 
 from nitful.core.common import DES, UnknownDES
@@ -22,6 +24,21 @@ def register_des[T: DES](desid: str, desver: int, spec: Segment[T]) -> None:
     """Register a specification for a DES."""
     des_read_registry[desid, desver] = cast(Segment[DES], spec)
     des_write_registry[spec.model_cls] = cast(Segment[DES], spec)
+
+
+@contextmanager
+def disable_des_parsing() -> Iterator[None]:
+    saved_read = des_read_registry.copy()
+    saved_write = des_write_registry.copy()
+
+    des_read_registry.clear()
+    des_write_registry.clear()
+
+    try:
+        yield
+    finally:
+        des_read_registry.update(saved_read)
+        des_write_registry.update(saved_write)
 
 
 def make_unknown_spec(header_len: int, data_len: int) -> Segment[UnknownDES]:

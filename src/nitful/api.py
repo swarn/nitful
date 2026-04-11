@@ -1,17 +1,27 @@
 from pathlib import Path
 from typing import BinaryIO
 
-from ._format.file import read_file as _read_file
-from ._format.file import to_fields as _to_fields
+from ._format.des import disable_des_parsing
+from ._format.file import read_file, to_fields
+from ._format.tre import disable_tre_parsing
 from .core.file import NitfFile
-from .dsl.io import dump_fields as _dump_fields
-from .dsl.io import write_fields as _write_fields
-from .dsl.rules import ParseContext as _ParseContext
+from .dsl.io import dump_fields, write_fields
+from .dsl.rules import Int, ParseContext, item_size
+
+__all__ = [
+    "NitfFile",
+    "dump",
+    "load",
+    "read",
+    "save",
+    "strip",
+    "write",
+]
 
 
 def read(fd: BinaryIO) -> NitfFile:
     """Reads a NitfFile object from an open binary stream."""
-    return _read_file(fd, _ParseContext())
+    return read_file(fd, ParseContext())
 
 
 def load(filepath: str | Path) -> NitfFile:
@@ -22,8 +32,8 @@ def load(filepath: str | Path) -> NitfFile:
 
 def write(nitf: NitfFile, fd: BinaryIO) -> None:
     """Serialize a NitfFile object and write it to an open binary stream."""
-    fields = _to_fields(nitf)
-    _write_fields(fields, fd)
+    fields = to_fields(nitf)
+    write_fields(fields, fd)
 
 
 def save(nitf: NitfFile, filepath: str | Path) -> None:
@@ -67,18 +77,50 @@ def dump(
         The formatted text representation of the parsed NITF fields.
     """
     if isinstance(source, NitfFile):
-        fields = _to_fields(source)
+        fields = to_fields(source)
     else:
         with open(source, "rb") as fd:
-            ctx = _ParseContext()
-            _read_file(fd, ctx)
+            ctx = ParseContext()
+            read_file(fd, ctx)
 
         fields = [item for (item, _) in ctx.fields]
 
-    return _dump_fields(
+    return dump_fields(
         fields,
         header=header,
         image_nums=image_nums,
         tre_names=tre_names,
         des_names=des_names,
     )
+
+
+def strip(fd_in: BinaryIO, fd_out: BinaryIO) -> None:
+    """Create a copy of a NITF file that strips image pixels.
+
+    Used to create a file when you only want to share the metadata. Modifies
+    the image data and image sizes in the file header, so that the file can be
+    parsed correctly.
+    """
+    fake_pixels = bytes.fromhex("DEADBEEF")
+    li = len(fake_pixels)
+
+    # Disable parsing of SDEs: it's not needed to simply copy the bytes, and
+    # possibly an impediment: a user might strip a NITF to send _because_ it's
+    # not parsing correctly.
+    with disable_des_parsing(), disable_tre_parsing():
+        ctx = ParseContext()
+        read_file(fd_in, ctx)
+
+    fields = [item for (item, _) in ctx.fields]
+    field_map = {f.name: f for f in fields}
+
+    data_fields = [f for f in fields if f.name == "IMAGE DATA"]
+
+    for i, data in enumerate(data_fields):
+        data.value = fake_pixels
+        field_map[f"LI[{i}]"].value = Int("LI", 10).encode(li)
+
+    fl = item_size(fields)
+    field_map["FL"].value = Int("FL", 12).encode(fl)
+
+    write_fields(fields, fd_out)

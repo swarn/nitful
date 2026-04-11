@@ -1,10 +1,12 @@
-from os import SEEK_CUR
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import BinaryIO, cast
 
 from nitful.core.common import TRE, UnknownTRE
 from nitful.dsl.rules import (
     BcsString,
     EmitContext,
+    FixedBytes,
     Int,
     Item,
     ParseContext,
@@ -21,14 +23,40 @@ def register_tre[T: TRE](tag: str, spec: Struct[T]) -> None:
     tre_write_registry[spec.model_cls] = cast(Struct[TRE], spec)
 
 
+@contextmanager
+def disable_tre_parsing() -> Iterator[None]:
+    saved_read = tre_read_registry.copy()
+    saved_write = tre_write_registry.copy()
+
+    tre_read_registry.clear()
+    tre_write_registry.clear()
+
+    try:
+        yield
+    finally:
+        tre_read_registry.update(saved_read)
+        tre_write_registry.update(saved_write)
+
+
+def make_unknown_spec(cel: int) -> Struct[UnknownTRE]:
+    return Struct(
+        UnknownTRE,
+        [
+            BcsString("CETAG", 6),
+            Int("CEL", 5),
+            FixedBytes("raw_data", cel),
+        ],
+    )
+
+
 def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
+    # Peek at the CETAG and CEL fields.
     start_pos = fd.tell()
+    header_len = 11
+    header = fd.read(header_len)
+    fd.seek(start_pos)
 
-    # length of CETAG and CEL fields.
-    peek_len = 11
-
-    header = fd.read(peek_len)
-    if len(header) != peek_len:
+    if len(header) != header_len:
         msg = "Unexpected EOF while reading TRE header."
         raise RuntimeError(msg)
 
@@ -40,18 +68,15 @@ def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
         raise RuntimeError(msg) from e
 
     if tag in tre_read_registry:
-        fd.seek(-peek_len, SEEK_CUR)
-        spec = tre_read_registry[tag]
-        parsed_tre = spec.parse(fd, ctx)
+        parsed_tre = tre_read_registry[tag].parse(fd, ctx)
     else:
-        parsed_tre = UnknownTRE(CETAG=tag, raw_data=fd.read(cel))
+        parsed_tre = make_unknown_spec(cel).parse(fd, ctx)
 
-    expected_end = start_pos + peek_len + cel
+    expected_end = start_pos + header_len + cel
     actual_end = fd.tell()
-
     if actual_end != expected_end:
         fd.seek(expected_end)
-        total = actual_end - start_pos - peek_len
+        total = actual_end - start_pos - header_len
         msg = f"TRE '{tag}' has payload len (CEL) {cel}, but {total} bytes were read."
         raise RuntimeError(msg)
 
