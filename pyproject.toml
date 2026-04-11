@@ -71,3 +71,11 @@ reportExplicitAny = "none"
 reportAny = "none"
 reportUnknownArgumentType = "none"
 reportUnknownLambdaType = "none"
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportMissingParameterType = false
+reportUnknownParameterType = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportArgumentType = false
