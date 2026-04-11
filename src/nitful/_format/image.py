@@ -250,8 +250,6 @@ def image_to_fields(
     ixshd_fields = tre_list_to_fields(image.IXSHD, "IXSHDL", "IXSOFL", ctx)
     out_fields.extend(ixshd_fields)
 
-    out_fields.append(Item(name="IMAGE DATA START", value=b""))
-
     data_field = Item(name="IMAGE DATA", value=image.data)
 
     return out_fields, [data_field]
