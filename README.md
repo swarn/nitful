@@ -57,7 +57,7 @@ pipx install nitful
 If you want to run the latest unreleased code or contribute to the project, you
 can install directly from the repository:
 ```sh
-git clone [https://github.com/swarn/nitful.git](https://github.com/swarn/nitful.git)
+git clone https://github.com/swarn/nitful.git
 cd nitful
 pip install -e .
 ```
