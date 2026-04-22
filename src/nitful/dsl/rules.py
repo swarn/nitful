@@ -1044,6 +1044,41 @@ class Accept[T](Field[T]):
 
 
 @dataclass
+class Check[T](Field[T]):
+    """Validates a field during parsing.
+
+    The default behavior of a field is to run the validator during
+    serialization only; parsing errors only occur if the parsed value can't be
+    converted to the expected type. This wrapper runs the field validator
+    during parsing.
+    """
+
+    def __init__(self, rule: Field[T]) -> None:
+        if rule.validate is None:
+            msg = f"Cannot use Require on rule '{rule.name}': it has no validator."
+            raise DefinitionError(msg)
+
+        # Replicate the inner rule's metadata.
+        super().__init__(name=rule.name, size=rule.size, validate=rule.validate)
+
+        self.rule: Field[T] = rule
+
+    @override
+    def decode(self, encoded: bytes) -> T:
+        val = self.rule.decode(encoded)
+
+        if self.validate and not self.validate(val):
+            msg = f"Parse validation failed: read {val!r}"
+            raise ValueError(msg)
+
+        return val
+
+    @override
+    def encode(self, decoded: T) -> bytes:
+        return self.rule.encode(decoded)
+
+
+@dataclass
 class Override[T, V](Field[T | V]):
     """Override specific byte patterns with a given value."""
 
