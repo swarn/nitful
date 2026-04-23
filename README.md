@@ -1,12 +1,18 @@
 # `nitful`: The Useful NITF Library
 
+[![CI Status](https://github.com/swarn/nitful/actions/workflows/ci.yml/badge.svg)](https://github.com/swarn/nitful/actions/workflows/ci.yml)
+[![PyPI - Version](https://img.shields.io/pypi/v/nitful.svg)](https://pypi.org/project/nitful/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/nitful.svg)](https://pypi.org/project/nitful/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 `nitful` is a zero-dependency Python library and command-line utility for
 reading, writing, and manipulating National Imagery Transmission Format (NITF /
 JBF) files.
 
-> **Status: Alpha.** `nitful` is highly functional, but the API may still
-> undergo changes. The library currently parses standard headers and a select
-> number of extensions.
+> [!IMPORTANT]
+> `nitful` is **alpha** software. It is fully functional for reading, writing,
+> and stripping NITF files, but expect minor API adjustments before a stable
+> release.
 
 **Features**
 
@@ -179,7 +185,7 @@ segment.*
 
 ```python
 import nitful
-from nitful.core.spec import DeferredImageData
+from nitful.core import DeferredImageData
 from typing import cast
 
 nitf = nitful.load('image.ntf')
@@ -246,12 +252,15 @@ nitf.image_segments[0].data = pixels
 nitful.save(nitf, 'new_file.ntf')
 ```
 
-*Note: It is up to you to correctly configure the image segment metadata (NROWS, ABPP, etc.) when modifying pixel data.*
+> [!IMPORTANT]
+> It is up to you to correctly configure the image segment metadata (NROWS,
+> ABPP, etc.) when modifying pixel data.
 
 
 ## Supported Extensions
 
-The list of explicitly supported SDEs is small but growing; see the `nitful/extensions` directory.
+The list of explicitly supported SDEs is small but growing; see the
+`nitful/extensions` directory.
 
 Crucially, an extension does not need to be supported by `nitful` for you to
 read or modify the rest of the file. Unknown extensions are safely preserved as
