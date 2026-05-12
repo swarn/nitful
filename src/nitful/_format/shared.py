@@ -9,6 +9,7 @@ from typing import Any, BinaryIO, override
 
 from nitful.core import Security
 from nitful.core.common import ECI, SecurityClass
+from nitful.core.errors import DefinitionError
 from nitful.dsl.rules import (
     BcsString,
     Combinator,
@@ -123,7 +124,7 @@ class ReservedExtensions(Combinator[Any]):
         for i, rule in self.cases.items():
             if not rule.name:
                 msg = f"Area rules must have a 'name', but area {i} does not."
-                raise ValueError(msg)
+                raise DefinitionError(msg)
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> None:

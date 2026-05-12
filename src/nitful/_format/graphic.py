@@ -70,11 +70,8 @@ def read_graphic_segment(
     nbytes_exp = lssh + ls
     nbytes_read = fd.tell() - start_pos
     if nbytes_read != nbytes_exp:
-        msg = ctx.format_error(
-            "parsing",
-            f"Graphic segment: expected {nbytes_exp} bytes, read {nbytes_read}.",
-            start_pos,
-        )
+        cause = f"Graphic segment: expected {nbytes_exp} bytes, read {nbytes_read}."
+        msg = ctx.format_error(cause, start_pos)
         raise ParseError(msg)
 
     return segment

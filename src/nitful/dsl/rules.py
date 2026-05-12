@@ -184,8 +184,7 @@ class Context(ABC):
     See the description in the module docstring for more info.
     """
 
-    is_parsing: ClassVar[bool] = False
-    is_emitting: ClassVar[bool] = False
+    action: ClassVar[str] = ""
 
     def __init__(self, init: dict[str, Any] | None = None) -> None:
         # Stacked namespaces for evaluation contexts.
@@ -238,9 +237,6 @@ class Context(ABC):
 
     def format_subscripts(self) -> str:
         """Get a string with the current indices, e.g. '[2][0]'."""
-        if not self.indices:
-            return ""
-
         return "".join(f"[{i}]" for i in self.indices)
 
     def format_path(self) -> str:
@@ -255,15 +251,13 @@ class Context(ABC):
     def format_fields(self) -> str:
         """Get a string with the most recently processed fields."""
 
-    def format_error(
-        self, action: str, base_msg: str, offset: int | None = None
-    ) -> str:
+    def format_error(self, base_msg: str, offset: int | None = None) -> str:
         """Get a error message desribing parsing/serialization state."""
 
         offset_str = "" if offset is None else f" at byte {offset} (0x{offset:04X})"
 
         return (
-            f"Error {action}{offset_str}"
+            f"Error {self.action}{offset_str}"
             f"\n\nCause: {base_msg}"
             f"\n\nWhere:\n  {self.format_path()}"
             f"{self.format_fields()}"
@@ -277,7 +271,7 @@ class ParseContext(Context):
     context only *after* their corresponding binary fields have been parsed.
     """
 
-    is_parsing: ClassVar[bool] = True
+    action: ClassVar[str] = "parsing"
 
     def __init__(self, init: dict[str, Any] | None = None) -> None:
         super().__init__(init)
@@ -304,7 +298,7 @@ class EmitContext(Context):
     the Python object into the context *before* evaluating their child rules.
     """
 
-    is_emitting: ClassVar[bool] = True
+    action: ClassVar[str] = "serializing"
 
     def __init__(self, init: dict[str, Any] | None = None) -> None:
         super().__init__(init)
@@ -353,7 +347,7 @@ class Rule[T](ABC):
         except ParseError:
             raise
         except Exception as e:
-            msg = ctx.format_error("parsing", str(e), start_offset)
+            msg = ctx.format_error(str(e), start_offset)
             raise ParseError(msg) from e
         else:
             if self.name:
@@ -371,7 +365,7 @@ class Rule[T](ABC):
         except SerializeError:
             raise
         except Exception as e:
-            msg = ctx.format_error("serializing", str(e))
+            msg = ctx.format_error(str(e))
             raise SerializeError(msg) from e
         finally:
             ctx.path.pop()
@@ -438,9 +432,13 @@ class Field[T](Rule[T], ABC):
 
         encoded = self.encode(value)
         if len(encoded) != self.size:
+            payload_str = repr(encoded)
+            max_len = 100
+            if len(payload_str) > max_len:
+                payload_str = payload_str[: max_len - 3] + "...'"
             msg = (
                 f"Encoding error in '{self.name}': Expected {self.size} bytes, "
-                f"but got {len(encoded)} bytes (Payload: {encoded!r})"
+                f"but got {len(encoded)} bytes (Payload: {payload_str})"
             )
             raise ValueError(msg)
 
@@ -853,7 +851,7 @@ class FlexFloat(Field[float]):
                 return formatted.encode("ascii")
 
         msg = f"Cannot encode {decoded} into {self.size} bytes."
-        raise SerializeError(msg)
+        raise ValueError(msg)
 
 
 @dataclass
@@ -1093,7 +1091,7 @@ class Override[T, V](Field[T | V]):
         for o_bytes in self.mapping:
             if len(o_bytes) != self.size:
                 msg = f"Override {o_bytes!r} is wrong size"
-                raise ValueError(msg)
+                raise DefinitionError(msg)
 
     @override
     def decode(self, encoded: bytes) -> T | V:
@@ -1182,7 +1180,12 @@ class Mapped[T, U](Combinator[U]):
 
 @dataclass
 class Vector[T](Combinator[list[T]]):
-    """A list of rules translated to/from a list of values."""
+    """A list of rules translated to/from a list of values.
+
+    Unlike `SizedList` or `PrefixedList`, which repeat one rule `n` times to
+    return a list of `n` items, a `Vector` uses `n` rules to return a list of
+    `n` items.
+    """
 
     rules: Sequence[Rule[T]]
 

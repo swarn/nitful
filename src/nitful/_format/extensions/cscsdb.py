@@ -11,6 +11,7 @@ from nitful.dsl.rules import (
     Computed,
     Constant,
     Context,
+    EmitContext,
     ExpFloat,
     FixedFloat,
     HMSeconds,
@@ -334,7 +335,7 @@ io_calibration = Struct(
 
 def post_covar_count(ctx: Context) -> int:
     """For how many posts do we have covariance?"""
-    if ctx.is_emitting:
+    if isinstance(ctx, EmitContext):
         return len(ctx["covar"])
 
     return 1 if ctx["COMMON_POSTS_COV"] else ctx["NUM_POSTS"]

@@ -66,16 +66,14 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int, ctx: ParseContext) ->
 
     first = fd.read(peek_len)
     if len(first) != peek_len:
-        msg = ctx.format_error(
-            "parsing", "Unexpected EOF while reading DES header.", start_pos
-        )
+        msg = ctx.format_error("Unexpected EOF while reading DES header.", start_pos)
         raise ParseError(msg)
 
     fd.seek(start_pos)
 
     if first[:2].decode() != "DE":
         msg = ctx.format_error(
-            "parsing", "Expected DES, but first characters were not 'DE'", start_pos
+            "Expected DES, but first characters were not 'DE'", start_pos
         )
         raise ParseError(msg)
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, ClassVar, override
 
 from nitful.core.common import EncryptionLevel, PixelCoord
+from nitful.core.errors import ParseError
 from nitful.core.image import (
     BandInfo,
     Compression,
@@ -212,9 +213,11 @@ def read_image_segment(
 
     header = Group(image_head_spec).parse(fd, ctx)
 
-    if fd.tell() != start_pos + lish:
-        msg = "Image segment header has wrong length"
-        raise RuntimeError(msg)
+    nbytes_read = fd.tell() - start_pos
+    if nbytes_read != lish:
+        cause = f"Image segment header expected {lish} bytes, read {nbytes_read}."
+        msg = ctx.format_error(cause, start_pos)
+        raise ParseError(msg)
 
     path = None
     if hasattr(fd, "name") and isinstance(fd.name, str) and Path(fd.name).exists():
