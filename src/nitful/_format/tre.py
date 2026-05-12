@@ -1,10 +1,13 @@
+import itertools
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import BinaryIO, cast
+from dataclasses import dataclass, field
+from typing import Any, BinaryIO, cast, override
 
 from nitful.core.common import TRE, UnknownTRE
 from nitful.dsl.rules import (
     BcsString,
+    Combinator,
     EmitContext,
     FixedBytes,
     Int,
@@ -83,24 +86,6 @@ def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
     return parsed_tre
 
 
-def read_tre_list(
-    fd: BinaryIO, len_name: str, ofl_name: str, ctx: ParseContext
-) -> list[TRE]:
-    tres: list[TRE] = []
-    length = Int(len_name, 5).parse(fd, ctx)
-    if length > 0:
-        overflow = Int(ofl_name, 3).parse(fd, ctx)
-        if overflow > 0:
-            msg = "TRE overflow is not supported."
-            raise NotImplementedError(msg)
-
-        end_pos = fd.tell() + (length - 3)
-        while fd.tell() < end_pos:
-            tres.append(read_tre(fd, ctx))
-
-    return tres
-
-
 def tre_to_fields(tre: TRE, ctx: EmitContext) -> list[Item]:
 
     if isinstance(tre, UnknownTRE):
@@ -118,19 +103,64 @@ def tre_to_fields(tre: TRE, ctx: EmitContext) -> list[Item]:
     return spec.to_fields(tre, ctx)
 
 
-def tre_list_to_fields(
-    tres: list[TRE], len_name: str, ofl_name: str, ctx: EmitContext
-) -> list[Item]:
-    ctx = EmitContext()
+@dataclass
+class TreBlock(Combinator[Any]):
+    """Parse and emit TRE blocks, such as UDHD.
 
-    if not tres:
-        return Int(len_name, 5).to_fields(0, ctx)
+    The NITF file header and segments each include one or two lists of TREs.
+    The TRE data can also overflow into a DES.
 
-    hd_fields: list[Item] = []
-    for tre in tres:
-        hd_fields.extend(tre_to_fields(tre, ctx))
+    Because this is an anonymous rule, it injects the length, overflow, and
+    list of TREs directly into the current scope during parsing, to be unpacked
+    into the full dataclass. It also extracts them from the full context
+    dictionary during emit.
+    """
 
-    hd_len = Int(len_name, 5).to_fields(item_size(hd_fields) + 3, ctx)
-    of_len = Int(ofl_name, 3).to_fields(0, ctx)
+    len_name: str
+    ofl_name: str
+    data_name: str
 
-    return [*hd_len, *of_len, *hd_fields]
+    name: str = field(default="", init=False)
+
+    @override
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> None:
+        tres: list[TRE] = []
+
+        length = Int(self.len_name, 5).parse(fd, ctx)
+
+        # Add default values to the context if there's nothing else to parse.
+        if length == 0:
+            ctx[self.ofl_name] = 0
+            ctx[self.data_name] = tres
+            return
+
+        # Otherwise, Int.parse automatically puts ofl_name into the context.
+        Int(self.ofl_name, 3).parse(fd, ctx)
+
+        end_pos = fd.tell() + (length - 3)
+
+        for _ in ctx.iterate(itertools.count()):
+            if fd.tell() >= end_pos:
+                break
+            tres.append(read_tre(fd, ctx))
+
+        # Add the parsed TREs to the context.
+        ctx[self.data_name] = tres
+
+    @override
+    def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Item]:
+        tres: list[TRE] = value[self.data_name]
+        overflow: int = value[self.ofl_name]
+
+        if not tres and overflow == 0:
+            return Int(self.len_name, 5).to_fields(0, ctx)
+
+        data_fields = Int(self.ofl_name, 3).to_fields(overflow, ctx)
+
+        for tre in tres:
+            data_fields.extend(tre_to_fields(tre, ctx))
+
+        # This will throw if there is too much data.
+        length_fields = Int(self.len_name, 5).to_fields(item_size(data_fields), ctx)
+
+        return [*length_fields, *data_fields]

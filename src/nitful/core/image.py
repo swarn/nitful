@@ -46,7 +46,14 @@ class ImageSegment:
     IMAG: str = "1.0 "
 
     UDID: list[TRE] = field(default_factory=list)
+
+    # If non-zero, the one-based index of the DES containing UDID overflow.
+    UDOFL: int = 0
+
     IXSHD: list[TRE] = field(default_factory=list)
+
+    # If non-zero, the one-based index of the DES containing IXSHD overflow.
+    IXSOFL: int = 0
 
     data: DeferredImageData | bytes = field(
         default_factory=lambda: bytes.fromhex("DEADBEEF")

@@ -28,9 +28,15 @@ class NitfFile:
     # User-defined header data.
     UDHD: list[TRE] = field(default_factory=list)
 
+    # If non-zero, the one-based index of the DES containing UDHD overflow.
+    UDHOFL: int = 0
+
     # Extended header data. If I understand STDI-0002 §2.2.1 correctly,
     # controlled extensions (CE), which are "standard" TREs, go here.
     XHD: list[TRE] = field(default_factory=list)
+
+    # If non-zero, the one-based index of the DES containing XHD overflow.
+    XHDLOFL: int = 0
 
     image_segments: list[ImageSegment] = field(default_factory=list)
     data_segments: list[DES] = field(default_factory=list)

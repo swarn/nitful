@@ -29,7 +29,7 @@ from nitful.dsl.validators import nonnegative, notblank, one_of
 from .des import des_to_fields, read_des
 from .image import image_to_fields, read_image_segment
 from .shared import security_spec
-from .tre import read_tre_list, tre_list_to_fields
+from .tre import TreBlock
 
 
 @dataclass
@@ -62,64 +62,60 @@ class ReservedSegmentInfo:
     LRE: int
 
 
-header_spec = Group(
-    name="file header",
-    rules=[
-        Check(BcsString("FHDR", 4, one_of("NITF", "NSIF"))),
-        Check(BcsString("FVER", 5, one_of("01.01", "02.10"))),
-        Int("CLEVEL", 2, one_of(3, 5, 6, 7, 9, 51, 54, 57)),
-        BcsString("STYPE", 4, one_of("BF01")),
-        BcsString("OSTAID", 10, notblank),
-        ConcatDatetime("FDT"),
-        EcsString("FTITLE", 80),
-        security_spec,
-        Int("FSCOP", 5, nonnegative),
-        Int("FSCPYS", 5, nonnegative),
-        BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
-        Mapped(
-            FixedBytes("FBKGC", 3),
-            encoder=lambda v: bytes(v),
-            decoder=lambda b: (b[0], b[1], b[2]),
-        ),
-        EcsString("ONAME", 24),
-        EcsString("OPHONE", 18),
-        Int("FL", 12),
-        Int("HL", 6),
-        PrefixedList(
-            name="image_segment_info",
-            count=Int("NUMI", 3),
-            body=Struct(ImageSegmentInfo, [Int("LISH", 6), Int("LI", 10)]),
-        ),
-        PrefixedList(
-            name="graphic_segment_info",
-            count=Int("NUMS", 3),
-            body=Struct(GraphicSegmentInfo, [Int("LSSH", 4), Int("LS", 6)]),
-        ),
-        Constant(Int("NUMX", 3), 0),
-        PrefixedList(
-            name="text_segment_info",
-            count=Int("NUMT", 3),
-            body=Struct(TextSegmentInfo, [Int("LTSH", 4), Int("LT", 5)]),
-        ),
-        PrefixedList(
-            name="data_segment_info",
-            count=Int("NUMDES", 3),
-            body=Struct(DataSegmentInfo, [Int("LDSH", 4), Int("LD", 9)]),
-        ),
-        PrefixedList(
-            name="reserved_segment_info",
-            count=Int("NUMRES", 3),
-            body=Struct(ReservedSegmentInfo, [Int("LRESH", 4), Int("LRE", 7)]),
-        ),
-    ],
-)
+header_spec = Group([
+    Check(BcsString("FHDR", 4, one_of("NITF", "NSIF"))),
+    Check(BcsString("FVER", 5, one_of("01.01", "02.10"))),
+    Int("CLEVEL", 2, one_of(3, 5, 6, 7, 9, 51, 54, 57)),
+    BcsString("STYPE", 4, one_of("BF01")),
+    BcsString("OSTAID", 10, notblank),
+    ConcatDatetime("FDT"),
+    EcsString("FTITLE", 80),
+    security_spec,
+    Int("FSCOP", 5, nonnegative),
+    Int("FSCPYS", 5, nonnegative),
+    BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
+    Mapped(
+        FixedBytes("FBKGC", 3),
+        encoder=lambda v: bytes(v),
+        decoder=lambda b: (b[0], b[1], b[2]),
+    ),
+    EcsString("ONAME", 24),
+    EcsString("OPHONE", 18),
+    Int("FL", 12),
+    Int("HL", 6),
+    PrefixedList(
+        name="image_segment_info",
+        count=Int("NUMI", 3),
+        body=Struct(ImageSegmentInfo, [Int("LISH", 6), Int("LI", 10)]),
+    ),
+    PrefixedList(
+        name="graphic_segment_info",
+        count=Int("NUMS", 3),
+        body=Struct(GraphicSegmentInfo, [Int("LSSH", 4), Int("LS", 6)]),
+    ),
+    Constant(Int("NUMX", 3), 0),
+    PrefixedList(
+        name="text_segment_info",
+        count=Int("NUMT", 3),
+        body=Struct(TextSegmentInfo, [Int("LTSH", 4), Int("LT", 5)]),
+    ),
+    PrefixedList(
+        name="data_segment_info",
+        count=Int("NUMDES", 3),
+        body=Struct(DataSegmentInfo, [Int("LDSH", 4), Int("LD", 9)]),
+    ),
+    PrefixedList(
+        name="reserved_segment_info",
+        count=Int("NUMRES", 3),
+        body=Struct(ReservedSegmentInfo, [Int("LRESH", 4), Int("LRE", 7)]),
+    ),
+    TreBlock("UDHDL", "UDHOFL", "UDHD"),
+    TreBlock("XHDL", "XHDLOFL", "XHD"),
+])
 
 
 def read_file(fd: BinaryIO, ctx: ParseContext) -> NitfFile:
     header = header_spec.parse(fd, ctx)
-
-    udhd = read_tre_list(fd, "UDHDL", "UDHOFL", ctx)
-    xhd = read_tre_list(fd, "XHDL", "XHDLOFL", ctx)
 
     # Read the image segments. Each segment includes all relevant size
     # information, so the sizes in the file header are mostly useful for
@@ -156,8 +152,6 @@ def read_file(fd: BinaryIO, ctx: ParseContext) -> NitfFile:
     valid_keys = header.keys() & valid_fields
 
     kwargs = {k: header[k] for k in valid_keys}
-    kwargs["UDHD"] = udhd
-    kwargs["XHD"] = xhd
     kwargs["image_segments"] = image_segments
     kwargs["data_segments"] = data_segments
 
@@ -186,12 +180,6 @@ def to_fields(nitf: NitfFile) -> list[Item]:
 
     # Map so that we can look up and patch the length fields later.
     field_map = {f.name: f for f in header_fields}
-
-    # Serialize TREs in the header.
-    udhd_fields = tre_list_to_fields(nitf.UDHD, "UDHDL", "UDHOFL", ctx)
-    header_fields.extend(udhd_fields)
-    xhd_fields = tre_list_to_fields(nitf.XHD, "XHDL", "XHDLOFL", ctx)
-    header_fields.extend(xhd_fields)
 
     # Fill in the length of the header.
     hl = item_size(header_fields)

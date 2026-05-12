@@ -36,7 +36,7 @@ from nitful.dsl.rules import (
 from nitful.dsl.validators import in_range, nonnegative, one_of, positive
 
 from .shared import security_spec
-from .tre import read_tre_list, tre_list_to_fields
+from .tre import TreBlock
 
 
 @dataclass
@@ -196,6 +196,8 @@ image_head_spec: list[Rule[Any]] = [
     Int("ILOCROW", 5, in_range(-9999, 99999)),
     Int("ILOCCOL", 5, in_range(-9999, 99999)),
     BcsString("IMAG", 4),
+    TreBlock("UDIDL", "UDOFL", "UDID"),
+    TreBlock("IXSHDL", "IXSOFL", "IXSHD"),
 ]
 
 
@@ -205,9 +207,6 @@ def read_image_segment(
     start_pos = fd.tell()
 
     header = Group(image_head_spec).parse(fd, ctx)
-
-    udid = read_tre_list(fd, "UDIDL", "UDOFL", ctx)
-    ixshd = read_tre_list(fd, "IXSHDL", "IXSOFL", ctx)
 
     if fd.tell() != start_pos + lish:
         msg = "Image segment header has wrong length"
@@ -227,8 +226,6 @@ def read_image_segment(
     valid_fields = {f.name for f in fields(ImageSegment)}
     valid_keys = header.keys() & valid_fields
     kwargs = {k: header[k] for k in valid_keys}
-    kwargs["UDID"] = udid
-    kwargs["IXSHD"] = ixshd
 
     return ImageSegment(**kwargs, data=data_proxy)
 
@@ -236,15 +233,7 @@ def read_image_segment(
 def image_to_fields(
     image: ImageSegment, ctx: EmitContext
 ) -> tuple[list[Item], list[Item]]:
-    ctx = EmitContext(vars(image))
     out_fields = Group(image_head_spec).to_fields(vars(image), ctx)
-
-    udid_fields = tre_list_to_fields(image.UDID, "UDIDL", "UDOFL", ctx)
-    out_fields.extend(udid_fields)
-
-    ixshd_fields = tre_list_to_fields(image.IXSHD, "IXSHDL", "IXSOFL", ctx)
-    out_fields.extend(ixshd_fields)
-
     data_field = Item(name="IMAGE DATA", value=image.data)
 
     return out_fields, [data_field]
