@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .common import DES, TRE, EncryptionLevel, Security
+from .graphic import GraphicSegment
 from .image import ImageSegment
 
 
@@ -39,6 +40,7 @@ class NitfFile:
     XHDLOFL: int = 0
 
     image_segments: list[ImageSegment] = field(default_factory=list)
+    graphic_segments: list[GraphicSegment] = field(default_factory=list)
     data_segments: list[DES] = field(default_factory=list)
 
 

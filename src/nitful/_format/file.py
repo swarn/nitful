@@ -28,6 +28,7 @@ from nitful.dsl.rules import (
 from nitful.dsl.validators import nonnegative, notblank, one_of
 
 from .des import des_to_fields, read_des
+from .graphic import graphic_to_fields, read_graphic_segment
 from .image import image_to_fields, read_image_segment
 from .shared import security_spec
 from .tre import TreBlock
@@ -125,10 +126,11 @@ def read_file(fd: BinaryIO, ctx: ParseContext) -> NitfFile:
         for info in header["image_segment_info"]
     ]
 
-    # Not supporting graphics yet, so simply skip those bytes.
-    for info in header["graphic_segment_info"]:
-        graphic_size = info.LSSH + info.LS
-        fd.seek(graphic_size, SEEK_CUR)
+    # Read the graphic segments.
+    graphic_segments = [
+        read_graphic_segment(fd, lssh=info.LSSH, ls=info.LS, ctx=ctx)
+        for info in header["graphic_segment_info"]
+    ]
 
     # Not supporting text segments yet.
     for info in header["text_segment_info"]:
@@ -153,6 +155,7 @@ def read_file(fd: BinaryIO, ctx: ParseContext) -> NitfFile:
 
     kwargs = {k: header[k] for k in valid_keys}
     kwargs["image_segments"] = image_segments
+    kwargs["graphic_segments"] = graphic_segments
     kwargs["data_segments"] = data_segments
 
     return NitfFile(**kwargs)
@@ -163,6 +166,7 @@ def to_fields(nitf: NitfFile) -> list[Item]:
 
     # We know how many segments there are, but not their sizes.
     dummy_imgs = [ImageSegmentInfo(0, 0) for _ in nitf.image_segments]
+    dummy_gss = [GraphicSegmentInfo(0, 0) for _ in nitf.graphic_segments]
     dummy_dess = [DataSegmentInfo(0, 0) for _ in nitf.data_segments]
 
     # Generate the header fields with dummy values for all lengths.
@@ -171,7 +175,7 @@ def to_fields(nitf: NitfFile) -> list[Item]:
         "FL": 0,
         "HL": 0,
         "image_segment_info": dummy_imgs,
-        "graphic_segment_info": [],
+        "graphic_segment_info": dummy_gss,
         "text_segment_info": [],
         "data_segment_info": dummy_dess,
         "reserved_segment_info": [],
@@ -198,7 +202,16 @@ def to_fields(nitf: NitfFile) -> list[Item]:
         segment_fields.extend(img_subhead)
         segment_fields.extend(img_data)
 
-    # Graphic segments will go here.
+    for i, gs in enumerate(nitf.graphic_segments):
+        gs_subhead, gs_data = graphic_to_fields(gs, ctx)
+
+        lssh = item_size(gs_subhead)
+        field_map[f"LSSH[{i}]"].value = Int("LSSH", 4).encode(lssh)
+        ls = item_size(gs_data)
+        field_map[f"LS[{i}]"].value = Int("LS", 6).encode(ls)
+
+        segment_fields.extend(gs_subhead)
+        segment_fields.extend(gs_data)
 
     # Text segments will go here.
 
