@@ -543,7 +543,7 @@ class Int(Field[int]):
 
     @override
     def decode(self, encoded: bytes) -> int:
-        return int(encoded.decode())
+        return int(encoded)
 
 
 @dataclass
@@ -688,7 +688,7 @@ class FixedFloat(Field[float]):
 
     @override
     def decode(self, encoded: bytes) -> float:
-        return float(encoded.decode().strip())
+        return float(encoded)
 
 
 @dataclass
@@ -722,7 +722,7 @@ class DecimalFloat(Field[float]):
 
     @override
     def decode(self, encoded: bytes) -> float:
-        return float(encoded.decode("ascii").strip())
+        return float(encoded)
 
     @override
     def encode(self, decoded: float) -> bytes:
@@ -805,7 +805,7 @@ class ExpFloat(Field[float]):
 
     @override
     def decode(self, encoded: bytes) -> float:
-        return float(encoded.decode("ascii"))
+        return float(encoded)
 
 
 @dataclass
@@ -837,7 +837,7 @@ class FlexFloat(Field[float]):
 
     @override
     def decode(self, encoded: bytes) -> float:
-        return float(encoded.decode().strip())
+        return float(encoded)
 
     @override
     def encode(self, decoded: float) -> bytes:
