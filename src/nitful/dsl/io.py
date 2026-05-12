@@ -1,3 +1,4 @@
+import itertools
 from collections.abc import Iterable
 from typing import BinaryIO, cast
 
@@ -99,7 +100,7 @@ def dump_fields(
 
         lines.extend(_format_item(item, WIDTH))
 
-    return "\n".join(output)
+    return "\n".join(itertools.chain(output, [""]))
 
 
 def _format_item(item: Item, width: int) -> list[str]:

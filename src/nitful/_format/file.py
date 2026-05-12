@@ -5,10 +5,11 @@ from os import SEEK_CUR
 from typing import BinaryIO
 
 from nitful.core.common import EncryptionLevel
-from nitful.core.file import NitfFile
+from nitful.core.file import RGB, NitfFile
 from nitful.dsl.rules import (
     BcsIntEnum,
     BcsString,
+    BinaryInt,
     Check,
     ConcatDatetime,
     Constant,
@@ -18,7 +19,7 @@ from nitful.dsl.rules import (
     Group,
     Int,
     Item,
-    Mapped,
+    Packed,
     ParseContext,
     PrefixedList,
     Struct,
@@ -74,10 +75,9 @@ header_spec = Group([
     Int("FSCOP", 5, nonnegative),
     Int("FSCPYS", 5, nonnegative),
     BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
-    Mapped(
+    Packed(
         FixedBytes("FBKGC", 3),
-        encoder=lambda v: bytes(v),
-        decoder=lambda b: (b[0], b[1], b[2]),
+        Struct(RGB, [BinaryInt("r", 1), BinaryInt("g", 1), BinaryInt("b", 1)]),
     ),
     EcsString("ONAME", 24),
     EcsString("OPHONE", 18),

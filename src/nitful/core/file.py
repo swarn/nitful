@@ -21,7 +21,7 @@ class NitfFile:
     FSCOP: int = 0
     FSCPYS: int = 0
     ENCRYP: EncryptionLevel = field(default_factory=lambda: EncryptionLevel.NONE)
-    FBKGC: tuple[int, int, int] = (0, 0, 0)
+    FBKGC: RGB = field(default_factory=lambda: RGB(0, 0, 0))
     ONAME: str = ""
     OPHONE: str = ""
 
@@ -40,3 +40,10 @@ class NitfFile:
 
     image_segments: list[ImageSegment] = field(default_factory=list)
     data_segments: list[DES] = field(default_factory=list)
+
+
+@dataclass
+class RGB:
+    r: int
+    g: int
+    b: int

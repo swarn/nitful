@@ -38,6 +38,12 @@ class Security:
 
 
 @dataclass
+class PixelCoord:
+    row: int
+    col: int
+
+
+@dataclass
 class TRE:
     """Base class for all Tagged Record Extensions."""
 

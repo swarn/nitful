@@ -5,7 +5,7 @@ from io import SEEK_CUR
 from pathlib import Path
 from typing import Any, BinaryIO, ClassVar, override
 
-from nitful.core.common import EncryptionLevel
+from nitful.core.common import EncryptionLevel, PixelCoord
 from nitful.core.image import (
     BandInfo,
     Compression,
@@ -25,9 +25,11 @@ from nitful.dsl.rules import (
     Constant,
     EcsString,
     EmitContext,
+    FixedBytes,
     Group,
     Int,
     Item,
+    Packed,
     ParseContext,
     PrefixedList,
     Rule,
@@ -193,8 +195,10 @@ image_head_spec: list[Rule[Any]] = [
     Int("NBPP", 2, in_range(1, 64)),
     Int("IDLVL", 3, positive),
     Int("IALVL", 3, in_range(0, 998)),
-    Int("ILOCROW", 5, in_range(-9999, 99999)),
-    Int("ILOCCOL", 5, in_range(-9999, 99999)),
+    Packed(
+        FixedBytes("ILOC", 10),
+        Struct(PixelCoord, [Int("row", 5), Int("col", 5)]),
+    ),
     BcsString("IMAG", 4),
     TreBlock("UDIDL", "UDOFL", "UDID"),
     TreBlock("IXSHDL", "IXSOFL", "IXSHD"),

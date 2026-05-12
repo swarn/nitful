@@ -126,6 +126,7 @@ For example, imagine a contrived NITF spec where a point is defined:
 
 from __future__ import annotations
 
+import io
 from abc import ABC, abstractmethod
 from collections import ChainMap
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
@@ -1426,6 +1427,54 @@ class Struct[T: DataclassProtocol](Combinator[T]):
                 out_fields.extend(rule.to_fields(child_val, ctx))
 
         return out_fields
+
+
+@dataclass
+class Packed[T](Combinator[T]):
+    """Reads a chunk of bytes as a single field, then parses its internal structure.
+
+    This is useful for several NITF fields that pack together multiple values
+    in a single field, allowing us to maintain the packed field on the NITF
+    side and use more structure on the Python side.
+    """
+
+    outer_rule: Field[bytes]
+    inner_rule: Rule[T]
+
+    def __post_init__(self) -> None:
+        self.name = self.outer_rule.name
+
+    @override
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
+        # Read the bytes and log the outer field (e.g., Item("ILOC", b"..."))
+        # to the context's `fields`.
+        raw_bytes = self.outer_rule.parse(fd, ctx)
+        inner_fd = io.BytesIO(raw_bytes)
+
+        start_fields = len(ctx.fields)
+
+        try:
+            # If it fails to parse, we'll get the correct path from the root,
+            # and the packed field is just an offset inside the outer field.
+            return self.inner_rule.parse(inner_fd, ctx)
+        finally:
+            # If it succeeds, leave only the outer field in the context.
+            del ctx.fields[start_fields:]
+
+    @override
+    def _emit(self, value: T, *, ctx: EmitContext) -> list[Item]:
+        start_fields = len(ctx.fields)
+
+        try:
+            inner_items = self.inner_rule.to_fields(value, ctx)
+        finally:
+            del ctx.fields[start_fields:]
+
+        raw_bytes = b"".join(
+            item.value for item in inner_items if isinstance(item.value, bytes)
+        )
+
+        return self.outer_rule.to_fields(raw_bytes, ctx)
 
 
 type _Condition = type | tuple[type, ...] | Callable[[Any, EmitContext], bool]

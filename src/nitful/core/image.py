@@ -5,6 +5,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import BinaryIO
 
+from nitful.core.common import PixelCoord
+
 from .common import TRE, EncryptionLevel, Security
 
 
@@ -41,8 +43,7 @@ class ImageSegment:
     NBPP: int = 8
     IDLVL: int = 1
     IALVL: int = 0
-    ILOCROW: int = 0
-    ILOCCOL: int = 0
+    ILOC: PixelCoord = field(default_factory=lambda: PixelCoord(0, 0))
     IMAG: str = "1.0 "
 
     UDID: list[TRE] = field(default_factory=list)
