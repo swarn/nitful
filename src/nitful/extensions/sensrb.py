@@ -66,7 +66,7 @@ class GeodeticType(StrEnum):
 
     # The standard requires one of the two above options, but vendors will
     # sometimes leave this blank.
-    NONCOMPLIANT_UNDEFINED = " "
+    NONCOMPLIANT_UNDEFINED = ""
 
 
 class ElevationDatum(StrEnum):
@@ -76,7 +76,7 @@ class ElevationDatum(StrEnum):
 
     # The standard requires one of the above options, but vendors will
     # sometimes leave this blank.
-    NONCOMPLIANT_UNDEFINED = "   "
+    NONCOMPLIANT_UNDEFINED = ""
 
 
 class LengthUnit(StrEnum):
