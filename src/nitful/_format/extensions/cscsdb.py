@@ -33,6 +33,7 @@ from nitful.dsl.validators import in_range, nonnegative, positive
 from nitful.extensions.cscsdb import (
     CSCSDB,
     BasicPayloadSpdcf,
+    BasicPlatformSpdcf,
     BasicSub,
     CalApId,
     ConstituentSpdcf,
@@ -48,6 +49,8 @@ from nitful.extensions.cscsdb import (
     ParameterId,
     PiecewiseLinear,
     PlSegment,
+    PostPayloadSpdcf,
+    PostPlatformSpdcf,
     PostSensorSpdcf,
     PostSub,
     ReferenceFrame,
@@ -364,7 +367,7 @@ post_sub = Struct(
             body=PrefixedList(
                 Int("NUM_POST_PF", 2, positive),
                 Struct(
-                    BasicPayloadSpdcf,
+                    PostPlatformSpdcf,
                     [
                         Int("POST_PF_SPDCF", 2, positive),
                         PrefixedList(
@@ -382,7 +385,7 @@ post_sub = Struct(
             body=PrefixedList(
                 Int("NUM_POST_PL", 2, positive),
                 Struct(
-                    BasicPayloadSpdcf,
+                    PostPayloadSpdcf,
                     [
                         Int("POST_PL_SPDCF", 2, positive),
                         PrefixedList(
@@ -423,7 +426,7 @@ basic_sub = Struct(
             body=PrefixedList(
                 Int("NUM_BASIC_PF", 2, positive),
                 Struct(
-                    BasicPayloadSpdcf,
+                    BasicPlatformSpdcf,
                     [
                         Int("BASIC_PF_SPDCF", 2, positive),
                         PrefixedList(
