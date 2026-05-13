@@ -72,7 +72,7 @@ header_spec = Group([
     BcsString("OSTAID", 10, notblank),
     ConcatDatetime("FDT"),
     EcsString("FTITLE", 80),
-    security_spec,
+    security_spec("F"),
     Int("FSCOP", 5, nonnegative),
     Int("FSCPYS", 5, nonnegative),
     BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),

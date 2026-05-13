@@ -127,7 +127,7 @@ csephb = Segment(
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSEPHB"),
         Int("DESVER", 2),
-        security_spec,
+        security_spec("DE"),
         SizedBlock(
             Int("DESSHL", 4),
             [

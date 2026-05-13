@@ -32,7 +32,7 @@ def make_graphic_spec(ls: int) -> Segment[GraphicSegment]:
             Constant(BcsString("SY", 2), "SY"),
             BcsString("SID", 10),
             EcsString("SNAME", 20),
-            security_spec,
+            security_spec("S"),
             BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
             BcsStringEnum("SFMT", 1, enum=GraphicFormat),
             Constant(Int("SSTRUCT", 13), 0),

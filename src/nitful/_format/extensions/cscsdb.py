@@ -506,7 +506,7 @@ cscsdb = Segment(
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSCSDB"),
         Constant(Int("DESVER", 2), 1),
-        security_spec,
+        security_spec("DE"),
         SizedBlock(
             Int("DESSHL", 4),
             [

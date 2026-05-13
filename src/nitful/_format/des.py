@@ -48,7 +48,7 @@ def make_unknown_spec(header_len: int, data_len: int) -> Segment[UnknownDES]:
             Constant(BcsString("DE", 2), "DE"),
             BcsString("DESID", 25),
             Int("DESVER", 2),
-            security_spec,
+            security_spec("DE"),
             FixedBytes("DESSH", header_len - security_len - 29),
         ],
         data=[

@@ -52,7 +52,7 @@ csattb = Segment(
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSATTB"),
         Int("DESVER", 2, one_of(1, 2)),
-        security_spec,
+        security_spec("DE"),
         SizedBlock(
             Int("DESSHL", 4),
             [

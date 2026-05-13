@@ -156,7 +156,7 @@ image_head_spec: list[Rule[Any]] = [
     BcsString("IDATIM", 14),
     BcsString("TGTID", 17),
     BcsString("IID2", 80),
-    security_spec,
+    security_spec("I"),
     BcsIntEnum("ENCRYP", 1, enum=EncryptionLevel),
     BcsString("ISORCE", 42),
     Int("NROWS", 8),

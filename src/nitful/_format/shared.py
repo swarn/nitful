@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, BinaryIO, override
+from typing import Any, BinaryIO, Literal, override
 
 from nitful.core import Security
 from nitful.core.common import ECI, SecurityClass
 from nitful.core.errors import DefinitionError
 from nitful.dsl.rules import (
+    Alias,
     BcsString,
     Combinator,
     DataclassProtocol,
@@ -29,29 +30,39 @@ from nitful.dsl.rules import (
 )
 from nitful.dsl.validators import in_range
 
-# The security fields shared by the file, image, and segment headers.
-security_spec = Struct(
-    name="security",
-    model_cls=Security,
-    rules=[
-        EcsStringEnum("SCLAS", 1, enum=SecurityClass),
-        EcsString("SCLSY", 2),
-        EcsString("SCODE", 11),
-        EcsString("SCTLH", 2),
-        EcsString("SREL", 20),
-        EcsString("SDCTP", 2),
-        EcsString("SDCDT", 8),
-        EcsString("SDCXM", 4),
-        EcsString("SDG", 1),
-        EcsString("SDGDT", 8),
-        EcsString("SCLTX", 43),
-        EcsString("SCATP", 1),
-        EcsString("SCAUT", 40),
-        EcsString("SCRSN", 1),
-        EcsString("SSRDT", 8),
-        EcsString("SCTLN", 15),
-    ],
-)
+
+def security_spec(prefix: Literal["F", "I", "S", "T", "DE", "RE"]) -> Struct[Security]:
+    """Return a spec for the Security fields with the given prefix.
+
+    The same security fields are shared by the file, image, and segment
+    headers. The prefix of the field name changes depending on which of these
+    the security fields appear in. This doesn't affect parsing/emitting, but
+    does make printed fields match the spec documents.
+    """
+
+    return Struct(
+        name="security",
+        model_cls=Security,
+        rules=[
+            Alias("SCLAS", EcsStringEnum(f"{prefix}SCLAS", 1, enum=SecurityClass)),
+            Alias("SCLSY", EcsString(f"{prefix}SCLSY", 2)),
+            Alias("SCODE", EcsString(f"{prefix}SCODE", 11)),
+            Alias("SCTLH", EcsString(f"{prefix}SCTLH", 2)),
+            Alias("SREL", EcsString(f"{prefix}SREL", 20)),
+            Alias("SDCTP", EcsString(f"{prefix}SDCTP", 2)),
+            Alias("SDCDT", EcsString(f"{prefix}SDCDT", 8)),
+            Alias("SDCXM", EcsString(f"{prefix}SDCXM", 4)),
+            Alias("SDG", EcsString(f"{prefix}SDG", 1)),
+            Alias("SDGDT", EcsString(f"{prefix}SDGDT", 8)),
+            Alias("SCLTX", EcsString(f"{prefix}SCLTX", 43)),
+            Alias("SCATP", EcsString(f"{prefix}SCATP", 1)),
+            Alias("SCAUT", EcsString(f"{prefix}SCAUT", 40)),
+            Alias("SCRSN", EcsString(f"{prefix}SCRSN", 1)),
+            Alias("SSRDT", EcsString(f"{prefix}SSRDT", 8)),
+            Alias("SCTLN", EcsString(f"{prefix}SCTLN", 15)),
+        ],
+    )
+
 
 # The length of the security fields.
 security_len = 167
