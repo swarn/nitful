@@ -126,7 +126,7 @@ csephb = Segment(
     subheader=[
         Constant(BcsString("DE", 2), "DE"),
         Constant(BcsString("DESID", 25), "CSEPHB"),
-        Constant(Int("DESVER", 2), 2),
+        Int("DESVER", 2),
         security_spec,
         SizedBlock(
             Int("DESSHL", 4),
