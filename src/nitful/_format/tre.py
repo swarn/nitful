@@ -1,4 +1,3 @@
-import itertools
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -137,12 +136,15 @@ class TreBlock(Combinator[Any]):
         # Otherwise, Int.parse automatically puts ofl_name into the context.
         Int(self.ofl_name, 3).parse(fd, ctx)
 
-        end_pos = fd.tell() + (length - 3)
+        start_pos = fd.tell()
+        end_pos = start_pos + (length - 3)
 
-        for _ in ctx.iterate(itertools.count()):
-            if fd.tell() >= end_pos:
-                break
+        while fd.tell() < end_pos:
             tres.append(read_tre(fd, ctx))
+
+        if fd.tell() > end_pos:
+            msg = f"{self.len_name} is {length}, but read {end_pos - start_pos} bytes"
+            raise RuntimeError(msg)
 
         # Add the parsed TREs to the context.
         ctx[self.data_name] = tres
