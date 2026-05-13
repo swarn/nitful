@@ -622,7 +622,7 @@ class EcsStringEnum[T: StrEnum](Field[T]):
 
     @override
     def decode(self, encoded: bytes) -> T:
-        return self.enum(encoded.decode("latin_1"))
+        return self.enum(encoded.decode("latin_1").strip())
 
 
 @dataclass
@@ -643,7 +643,7 @@ class BcsStringEnum[T: StrEnum](Field[T]):
 
     @override
     def decode(self, encoded: bytes) -> T:
-        return self.enum(encoded.decode("ascii"))
+        return self.enum(encoded.decode("ascii").strip())
 
 
 @dataclass
