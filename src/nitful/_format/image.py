@@ -51,7 +51,7 @@ class NumBands(Combinator[int]):
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> int:
         nbands = Int("NBANDS", 1).parse(fd, ctx)
         if nbands == 0:
-            nbands = Int("XBANDS", 4).parse(fd, ctx)
+            nbands = Int("XBANDS", 5).parse(fd, ctx)
         return nbands
 
     @override
