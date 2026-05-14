@@ -54,7 +54,7 @@ class TRE:
 class UnknownTRE(TRE):
     """Fallback class for unrecognized TREs."""
 
-    raw_data: bytes
+    CEDATA: bytes
 
 
 @dataclass(kw_only=True)

@@ -8,10 +8,10 @@ from nitful.dsl.rules import (
     BcsString,
     Combinator,
     EmitContext,
-    FixedBytes,
     Int,
     Item,
     ParseContext,
+    PrefixedBytes,
     Struct,
     item_size,
 )
@@ -40,15 +40,16 @@ def disable_tre_parsing() -> Generator[None]:
         tre_write_registry.update(saved_write)
 
 
-def make_unknown_spec(cel: int) -> Struct[UnknownTRE]:
-    return Struct(
-        UnknownTRE,
-        [
-            BcsString("CETAG", 6),
-            Int("CEL", 5),
-            FixedBytes("raw_data", cel),
-        ],
-    )
+unknown_tre_spec = Struct(
+    UnknownTRE,
+    [
+        BcsString("CETAG", 6),
+        PrefixedBytes(
+            len_rule=Int("CEL", 5),
+            name="CEDATA",
+        ),
+    ],
+)
 
 
 def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
@@ -72,7 +73,7 @@ def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
     if tag in tre_read_registry:
         parsed_tre = tre_read_registry[tag].parse(fd, ctx)
     else:
-        parsed_tre = make_unknown_spec(cel).parse(fd, ctx)
+        parsed_tre = unknown_tre_spec.parse(fd, ctx)
 
     expected_end = start_pos + header_len + cel
     actual_end = fd.tell()
@@ -88,10 +89,7 @@ def read_tre(fd: BinaryIO, ctx: ParseContext) -> TRE:
 def tre_to_fields(tre: TRE, ctx: EmitContext) -> list[Item]:
 
     if isinstance(tre, UnknownTRE):
-        tag_field = BcsString("CETAG", 6).to_fields(tre.CETAG, ctx)
-        len_field = Int("CEL", 5).to_fields(len(tre.raw_data), ctx)
-        data_field = Item(name="CEDATA", value=tre.raw_data)
-        return [*tag_field, *len_field, data_field]
+        return unknown_tre_spec.to_fields(tre, ctx)
 
     tre_type = type(tre)
     if tre_type not in tre_write_registry:
