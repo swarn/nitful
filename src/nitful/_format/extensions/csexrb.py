@@ -28,12 +28,12 @@ from nitful.dsl.rules import (
     Nothing,
     ParseContext,
     PrefixedList,
+    PrefixedString,
     SizedBlock,
     Struct,
     Switch,
     Uuid,
     Variant,
-    PrefixedString,
 )
 from nitful.dsl.validators import in_range, nonnegative, one_of, positive
 from nitful.extensions.csexrb import (
@@ -62,7 +62,10 @@ class TimeDeltas(Combinator[list[int]]):
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> list[int]:
         dt_size = ctx["DT_SIZE"]
         num_dt = BinaryInt("NUMBER_DT", 4).parse(fd, ctx)
-        return [BinaryInt("DT", dt_size).parse(fd, ctx) for _ in range(num_dt)]
+
+        return [
+            BinaryInt("DT", dt_size).parse(fd, ctx) for _ in ctx.iterate(range(num_dt))
+        ]
 
     @override
     def _emit(self, value: list[int], *, ctx: EmitContext) -> list[Item]:
@@ -140,7 +143,9 @@ imaging_operation = Struct(
     model_cls=ImagingOperation,
     rules=[
         PrefixedString(Int("CM_ID_LEN", 2, in_range(0, 99)), name="CM_ID"),
-        PrefixedString(Int("SENSOR_CONFIG_LEN", 2, in_range(0, 99)), name="SENSOR_CONFIG"),
+        PrefixedString(
+            Int("SENSOR_CONFIG_LEN", 2, in_range(0, 99)), name="SENSOR_CONFIG"
+        ),
         PrefixedString(Int("IMG_OP_ID_LEN", 2, in_range(0, 99)), name="IMG_OP_ID"),
         ExposureIndices(name="indices"),
         PrefixedList(
@@ -263,7 +268,6 @@ framer_timing = Struct(
                             BinaryInt("DT_MULTIPLIER", 8, positive),
                             BinaryInt("DT_SIZE", 1, positive),
                             BinaryInt("NUMBER_FRAMES", 4, positive),
-                            BinaryInt("NUMBER_DT", 4, nonnegative),
                             TimeDeltas(name="time_deltas"),
                         ],
                     ),
