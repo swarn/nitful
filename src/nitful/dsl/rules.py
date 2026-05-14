@@ -219,6 +219,23 @@ class Context(ABC):
         finally:
             self._contexts.maps.pop(0)
 
+    @contextmanager
+    def trace(self, rule: Rule[Any], offset: int | None = None) -> Generator[None]:
+        """Add `rule` to the path stack during processing and wrap exceptions."""
+
+        self.path.append((rule, tuple(self.indices)))
+
+        try:
+            yield
+        except (ParseError, SerializeError):
+            raise
+        except Exception as e:
+            msg = self.format_error(str(e), offset)
+            etype = ParseError if self.action == "parsing" else SerializeError
+            raise etype(msg) from e
+        finally:
+            self.path.pop()
+
     def iterate[V](self, iterable: Iterable[V]) -> Iterator[V]:
         """Iterate over a sequence while tracking the index for error paths.
 
@@ -315,6 +332,22 @@ class EmitContext(Context):
             f"  {item.name}: {item.value!r}" for item in self.fields[-5:]
         )
 
+    def emit_rules(
+        self, rules: Iterable[Rule[Any]], val_dict: dict[str, Any]
+    ) -> list[Item]:
+        """Do emit-time routing to child rules and emit from each one.
+
+        Route the scope value `foo` to the rule with name `foo`. Give anonymous
+        rules the entire dict, assuming that they will do their own routing.
+        """
+        out_fields: list[Item] = []
+
+        for rule in rules:
+            child_val = val_dict.get(rule.name) if rule.name else val_dict
+            out_fields.extend(rule.to_fields(child_val, self))
+
+        return out_fields
+
 
 @dataclass
 class Rule[T](ABC):
@@ -340,35 +373,17 @@ class Rule[T](ABC):
     @final
     def parse(self, fd: BinaryIO, ctx: ParseContext) -> T:
         start_offset = fd.tell()
-        ctx.path.append((self, tuple(ctx.indices)))
 
-        try:
+        with ctx.trace(self, start_offset):
             val = self._read(fd, ctx)
-        except ParseError:
-            raise
-        except Exception as e:
-            msg = ctx.format_error(str(e), start_offset)
-            raise ParseError(msg) from e
-        else:
             if self.name:
                 ctx[self.name] = val
             return val
-        finally:
-            ctx.path.pop()
 
     @final
     def to_fields(self, value: T, ctx: EmitContext) -> list[Item]:
-        ctx.path.append((self, tuple(ctx.indices)))
-
-        try:
+        with ctx.trace(self):
             return self._emit(value, ctx=ctx)
-        except SerializeError:
-            raise
-        except Exception as e:
-            msg = ctx.format_error(str(e))
-            raise SerializeError(msg) from e
-        finally:
-            ctx.path.pop()
 
     def display_name(self) -> str:
         """Used only for displaying the name in errors."""
@@ -1441,17 +1456,10 @@ class Struct[T: DataclassProtocol](Combinator[T]):
         # use `vars`: it will fail on slotted dataclasses.
         val_dict = {name: getattr(value, name) for name in self._field_names}
 
-        # Route the dataclass attribute `foo` to the rule with name `foo`. Give
-        # anonymous rules the entire dict, assuming that they will do their own
-        # routing. Also push the dict to the context, so that any descendant
-        # node can reach into `ctx` if it needs non-local values.
+        #  Push the dict to the context, so that any descendant node can reach
+        #  into `ctx` if it needs non-local values.
         with ctx.scope(val_dict):
-            out_fields: list[Item] = []
-            for rule in self.rules:
-                child_val = val_dict.get(rule.name) if rule.name else val_dict
-                out_fields.extend(rule.to_fields(child_val, ctx))
-
-        return out_fields
+            return ctx.emit_rules(self.rules, val_dict)
 
 
 @dataclass
@@ -1619,12 +1627,7 @@ class Group(Combinator[dict[str, Any]]):
     @override
     def _emit(self, value: dict[str, Any], *, ctx: EmitContext) -> list[Item]:
         with ctx.scope(value):
-            out_fields: list[Item] = []
-            for rule in self.rules:
-                child_val = value.get(rule.name) if rule.name else value
-                out_fields.extend(rule.to_fields(child_val, ctx))
-
-        return out_fields
+            return ctx.emit_rules(self.rules, value)
 
 
 @dataclass

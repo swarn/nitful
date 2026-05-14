@@ -89,20 +89,14 @@ class Segment[T: DataclassProtocol](Struct[T]):
 
     def emit_segment(self, value: T, ctx: EmitContext) -> tuple[list[Item], list[Item]]:
         """As _emit, but return the fields split into subheader and data fields."""
-        val_dict = vars(value)
+        with ctx.trace(self):
+            val_dict = {name: getattr(value, name) for name in self._field_names}
 
-        with ctx.scope(val_dict):
-            sub_fields: list[Item] = []
-            for rule in self.subheader:
-                child_val = val_dict.get(rule.name) if rule.name else val_dict
-                sub_fields.extend(rule.to_fields(child_val, ctx))
+            with ctx.scope(val_dict):
+                sub_fields = ctx.emit_rules(self.subheader, val_dict)
+                data_fields = ctx.emit_rules(self.data, val_dict)
 
-            data_fields: list[Item] = []
-            for rule in self.data:
-                child_val = val_dict.get(rule.name) if rule.name else val_dict
-                data_fields.extend(rule.to_fields(child_val, ctx))
-
-            return sub_fields, data_fields
+                return sub_fields, data_fields
 
 
 @dataclass
