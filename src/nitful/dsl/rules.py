@@ -1226,7 +1226,7 @@ class Vector[T](Combinator[list[T]]):
 
 
 @dataclass
-class VarString(Combinator[str]):
+class PrefixedString(Combinator[str]):
     """A string prefixed by a length field."""
 
     len_rule: Field[int]
@@ -1236,7 +1236,7 @@ class VarString(Combinator[str]):
         length = self.len_rule.parse(fd, ctx)
         if length == 0:
             return ""
-        return BcsString("", length).parse(fd, ctx)
+        return BcsString(self.name, length).parse(fd, ctx)
 
     @override
     def _emit(self, value: str, *, ctx: EmitContext) -> list[Item]:

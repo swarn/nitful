@@ -33,7 +33,7 @@ from nitful.dsl.rules import (
     Switch,
     Uuid,
     Variant,
-    VarString,
+    PrefixedString,
 )
 from nitful.dsl.validators import in_range, nonnegative, one_of, positive
 from nitful.extensions.csexrb import (
@@ -139,24 +139,25 @@ imaging_operation = Struct(
     ImagingOperation,
     [
         VarString(Int("CM_ID_LEN", 2, in_range(0, 99)), name="CM_ID"),
-        VarString(Int("SENSOR_CONFIG_LEN", 2, in_range(0, 99)), name="SENSOR_CONFIG"),
-        VarString(Int("IMG_OP_ID_LEN", 2, in_range(0, 99)), name="IMG_OP_ID"),
+        PrefixedString(Int("CM_ID_LEN", 2, in_range(0, 99)), name="CM_ID"),
+        PrefixedString(Int("SENSOR_CONFIG_LEN", 2, in_range(0, 99)), name="SENSOR_CONFIG"),
+        PrefixedString(Int("IMG_OP_ID_LEN", 2, in_range(0, 99)), name="IMG_OP_ID"),
         ExposureIndices(name="indices"),
         PrefixedList(
             Int("NUM_QUALITY_METRICS", 2, in_range(0, 99)),
             Struct(
                 QualityMetric,
                 [
-                    VarString(
+                    PrefixedString(
                         Int("QUALITY_METRIC_NAME_LEN", 2, in_range(1, 15)),
                         name="QUALITY_METRIC_NAME",
                     ),
-                    VarString(
+                    PrefixedString(
                         Int("QUALITY_METRIC_UNIT_LEN", 2),
                         name="QUALITY_METRIC_UNIT",
                     ),
                     BcsStringEnum("QUALITY_METRIC_TYPE", 1, enum=QualityType),
-                    VarString(
+                    PrefixedString(
                         Int("QUALITY_METRIC_VALUE_LEN", 2),
                         name="QUALITY_METRIC_VALUE",
                     ),
@@ -171,15 +172,15 @@ imaging_operation = Struct(
 collection_criteria = Struct(
     CollectionCriteria,
     [
-        VarString(
+        PrefixedString(
             Int("COLLECT_CRITERIA_NAME_LEN", 2, in_range(1, 25)),
             name="COLLECT_CRITERIA_NAME",
         ),
-        VarString(
+        PrefixedString(
             Int("COLLECT_CRITERIA_UNIT_LEN", 2, in_range(0, 25)),
             name="COLLECT_CRITERIA_UNIT",
         ),
-        VarString(
+        PrefixedString(
             Int("COLLECT_CRITERIA_VALUE_LEN", 2, in_range(0, 25)),
             name="COLLECT_CRITERIA_VALUE",
         ),
@@ -190,9 +191,9 @@ rfa = Struct(
     TargetAndCollectionData,
     [
         Int("NUM_IMG_OPS", 2, positive),
-        VarString(Int("TGT_ID_LEN", 2, one_of(0, 17)), name="TGT_ID"),
-        VarString(Int("TGT_NAME_LEN", 2), name="TGT_NAME"),
-        VarString(Int("TGT_TYPE_LEN", 2), name="TGT_TYPE"),
+        PrefixedString(Int("TGT_ID_LEN", 2, one_of(0, 17)), name="TGT_ID"),
+        PrefixedString(Int("TGT_NAME_LEN", 2), name="TGT_NAME"),
+        PrefixedString(Int("TGT_TYPE_LEN", 2), name="TGT_TYPE"),
         Blankable(FixedFloat("TGT_LAT", 9, sign=True, ndigits=5)),
         Blankable(FixedFloat("TGT_LON", 10, sign=True, ndigits=5)),
         Blankable(FixedFloat("TGT_HT", 8, sign=True, ndigits=1)),
@@ -202,16 +203,20 @@ rfa = Struct(
             FixedFloat("TGT_ELEV_ANG", 7, in_range(-90.0, 90.0), sign=True, ndigits=3)
         ),
         Blankable(FixedFloat("TGT_BIDEC_ANG", 7, in_range(0, 180.0), ndigits=3)),
-        VarString(Int("COLL_REQ_ID_LEN", 3), name="COLL_REQ_ID"),
-        VarString(Int("COLLECT_STRAT_LEN", 2), name="COLLECT_STRAT"),
-        VarString(Int("COLLECT_TYPE_LEN", 2), name="COLLECT_TYPE"),
-        VarString(Int("COLL_CODE_LEN", 2), name="COLL_CODE"),
+        PrefixedString(Int("COLL_REQ_ID_LEN", 3), name="COLL_REQ_ID"),
+        PrefixedString(Int("COLLECT_STRAT_LEN", 2), name="COLLECT_STRAT"),
+        PrefixedString(Int("COLLECT_TYPE_LEN", 2), name="COLLECT_TYPE"),
+        PrefixedString(Int("COLL_CODE_LEN", 2), name="COLL_CODE"),
         PrefixedList(
             name="collection_criteria",
             count=Int("NUM_COLLECT_CRITERIA", 2),
             body=collection_criteria,
         ),
-        PrefixedList(Int("NUM_IMG_OPS_DATA", 2, in_range(0, 99)), imaging_operation),
+        PrefixedList(
+            name="imaging_operations",
+            count=Int("NUM_IMG_OPS_DATA", 2, in_range(0, 99)),
+            body=imaging_operation,
+        ),
     ],
     name="rfa1",
 )
