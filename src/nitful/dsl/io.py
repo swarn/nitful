@@ -1,4 +1,5 @@
 import itertools
+import re
 from collections.abc import Iterable
 from typing import BinaryIO, cast
 
@@ -15,6 +16,13 @@ def write_fields(fields: Iterable[Item], out_fd: BinaryIO) -> None:
 
 
 WIDTH = 68
+
+SEGMENT_MARKERS = {
+    "IM": "IMAGE",
+    "SY": "GRAPHIC",
+    "TE": "TEXT",
+    "DE": "DES",
+}
 
 
 def dump_fields(
@@ -34,9 +42,10 @@ def dump_fields(
     included_image = set(image_nums or [])
     filtering = bool(included_tre or included_des or included_image or header)
 
-    image_num = 0
-    tre_num = 0
-    des_num = 0
+    section = "HEADER"
+    current_des = ""
+    section_count = 0
+    tre_count = 0
 
     # If filtering, switch between kept and omitted lines.
     output: list[str] = []
@@ -46,57 +55,48 @@ def dump_fields(
     lines.append(format(" FILE HEADER ", f"=^{WIDTH}"))
 
     for i, item in enumerate(item_list):
-        if item.name == "IM":
-            tre_num = 0
-            image_num += 1
 
-            keep = not filtering or image_num in included_image
+        if item.name in SEGMENT_MARKERS:
+            new_section = SEGMENT_MARKERS[item.name]
+
+            if section != new_section:
+                section = new_section
+                section_count = 1
+            else:
+                section_count += 1
+
+            tre_count = 0
+
+            if section == "DES":
+                current_des = cast(bytes, item_list[i + 1].value).decode().strip()
+                title = f" {section} {section_count}: {current_des} "
+                keep = not filtering or current_des in included_des
+            elif section == "IMAGE":
+                title = f" {section} {section_count} "
+                keep = not filtering or section_count in included_image
+            else:
+                title = f" {section} {section_count} "
+                keep = not filtering
+
             lines = output if keep else filtered
+            lines.append(format(title, f"=^{WIDTH}"))
 
-            lines.append(format(f" IMAGE SEGMENT {image_num} ", f"=^{WIDTH}"))
-
-        if item.name == "IMAGE DATA":
-            keep = not filtering or image_num in included_image
-            lines = output if keep else filtered
-
-            title = f" IMAGE {image_num} DATA: {len(item.value)} bytes "
-            lines.extend([
-                "/" * WIDTH,
-                format(title, f"/^{WIDTH}"),
-                "/" * WIDTH,
-            ])
-            continue
-
-        if not isinstance(item.value, bytes):
-            val_str = f"<{len(item.value)} bytes>"
-            lines.append(f"{item.name}: {val_str}")
-            continue
-
-        if item.name == "CETAG":
-            tre_num += 1
-            tre_name = item.value.decode().strip()
+        elif item.name == "CETAG":
+            tre_count += 1
+            tre_name = cast(bytes, item.value).decode().strip()
 
             keep = (
                 not filtering
-                or (image_num == 0 and header)
-                or image_num in included_image
+                or (section == "HEADER" and header)
+                or (section == "IMAGE" and section_count in included_image)
+                or (section == "DES" and current_des in included_des)
                 or tre_name in included_tre
             )
             lines = output if keep else filtered
 
-            location = "HEADER" if image_num == 0 else f"IMAGE {image_num}"
-            title = f" {location} TRE {tre_num}: {item.value.decode()} "
+            location = f"{section} {section_count}" if section_count > 0 else section
+            title = f" {location} TRE {tre_count}: {tre_name} "
             lines.append(format(title, f"=^{WIDTH}"))
-
-        if item.name == "DE":
-            des_num += 1
-            desname = cast(bytes, item_list[i + 1].value).decode().strip()
-
-            keep = not filtering or desname in included_des
-            lines = output if keep else filtered
-
-            title = format(f" DES {des_num}: {desname} ", f"=^{WIDTH}")
-            lines.append(title)
 
         lines.extend(_format_item(item, WIDTH))
 
@@ -104,31 +104,57 @@ def dump_fields(
 
 
 def _format_item(item: Item, width: int) -> list[str]:
-    if type(item.value) is not bytes:
-        raise ValueError
+
+    if item.name == "IMAGE DATA":
+        title = f" IMAGE DATA: {len(item.value)} bytes "
+        return ["/" * width, format(title, f"/^{width}"), "/" * width]
+
+    if not isinstance(item.value, bytes):
+        val_str = f"<{len(item.value)} bytes>"
+        return [f"{item.name}: {val_str}"]
 
     if len(item.value) == 0:
         return []
 
-    val_str = f"{item.name}: {repr(item.value)[1:]}"
+    return _format_bytes(item.name, item.value, width)
 
+
+# Eagerly matches 4-char hex escapes, 2-char standard escapes, then single chars.
+_REPR_TOKENIZER = re.compile(r"\\x[0-9a-fA-F]{2}|\\.|.")
+
+
+def _format_bytes(name: str, data: bytes, width: int) -> list[str]:
+    """Split a byte repr into multiple lines based on max width."""
+    raw_repr = repr(data)
+
+    val_str = f"{name}: {raw_repr[1:]}"
     if len(val_str) <= width:
         return [val_str]
 
-    lines: list[str] = []
-    lines.append(f"{item.name}:")
+    lines = [f"{name}:"]
 
-    chunk = bytearray()
-    line_without_byte = "''"
-    line_with_byte = "''"
-    for byte in item.value:
-        line_without_byte = line_with_byte
-        chunk.append(byte)
-        line_with_byte = f"  {repr(bytes(chunk))[1:]}"
-        if len(line_with_byte) > width:
-            lines.append(line_without_byte)
-            chunk = chunk[-1:]
-            line_with_byte = f"  {repr(bytes(chunk))[1:]}"
+    # Use the same quotes that Python uses for this string.
+    quote = raw_repr[-1]
+    inner_repr = raw_repr[2:-1]
 
-    lines.append(line_with_byte)
+    # Leave room for two leading spaces and surrounding quotes.
+    inner_width = width - 4
+    current_line_parts: list[str] = []
+    current_len = 0
+
+    for match in _REPR_TOKENIZER.finditer(inner_repr):
+        token = match.group()
+        token_len = len(token)
+
+        if current_len + token_len > inner_width:
+            lines.append(f"  {quote}{''.join(current_line_parts)}{quote}")
+            current_line_parts.clear()
+            current_len = 0
+
+        current_line_parts.append(token)
+        current_len += token_len
+
+    if current_line_parts:
+        lines.append(f"  {quote}{''.join(current_line_parts)}{quote}")
+
     return lines
