@@ -67,35 +67,32 @@ class NumBands(Combinator[int]):
 @dataclass
 class IcordsSpec(Combinator[Coords | None]):
 
+    icords_rule: ClassVar[Rule[str]] = BcsString("ICORDS", 1)
+    igeolo_rule: ClassVar[Rule[str]] = BcsString("IGEOLO", 60)
+
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> Coords | None:
-        ic_rep = BcsString("ICORDS", 1).parse(fd, ctx)
-
-        if ic_rep == "":
+        ic_rep = self.icords_rule.parse(fd, ctx)
+        if ic_rep.strip() == "":
             return None
 
-        args = [ic_rep]
-        args.extend(BcsString("", 15).parse(fd, ctx) for _ in range(4))
+        igeolo = self.igeolo_rule.parse(fd, ctx)
+        corners = [igeolo[i : i + 15] for i in range(0, 60, 15)]
 
-        return Coords(*args)
+        return Coords(ic_rep, *corners)
 
     @override
     def _emit(self, value: Coords | None, *, ctx: EmitContext) -> list[Item]:
         if value is None:
-            return BcsString("ICORDS", 1).to_fields(" ", ctx)
+            return self.icords_rule.to_fields(" ", ctx)
 
-        icords_fields = BcsString("ICORDS", 1).to_fields(value.ICORDS, ctx)
-        igeolo_bytes = b"".join(
-            BcsString("", 15).encode(c)
-            for c in [
-                value.upperleft,
-                value.upperright,
-                value.lowerright,
-                value.lowerleft,
-            ]
+        igeolo = (
+            f"{value.upperleft}{value.upperright}{value.lowerright}{value.lowerleft}"
         )
 
-        return [*icords_fields, Item("IGEOLO", igeolo_bytes)]
+        fields = self.icords_rule.to_fields(value.ICORDS, ctx)
+        fields.extend(self.igeolo_rule.to_fields(igeolo, ctx))
+        return fields
 
 
 @dataclass
