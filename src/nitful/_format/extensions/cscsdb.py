@@ -364,7 +364,7 @@ post_sub = Struct(
         Optional(
             name="platform_spdcfs",
             condition=Bool("POST_PF_FLAG"),
-            body=PrefixedList(
+            rule=PrefixedList(
                 Int("NUM_POST_PF", 2, positive),
                 Struct(
                     PostPlatformSpdcf,
@@ -382,7 +382,7 @@ post_sub = Struct(
         Optional(
             name="payload_spdcfs",
             condition=Bool("POST_PL_FLAG"),
-            body=PrefixedList(
+            rule=PrefixedList(
                 Int("NUM_POST_PL", 2, positive),
                 Struct(
                     PostPayloadSpdcf,
@@ -400,7 +400,7 @@ post_sub = Struct(
         Optional(
             name="sensor_spdcf",
             condition=Bool("POST_SR_FLAG"),
-            body=Struct(
+            rule=Struct(
                 PostSensorSpdcf,
                 [
                     Int("POST_SR_SPDCF", 2, positive),
@@ -423,7 +423,7 @@ basic_sub = Struct(
         Optional(
             name="platform_spdcfs",
             condition=Bool("BASIC_PF_FLAG"),
-            body=PrefixedList(
+            rule=PrefixedList(
                 Int("NUM_BASIC_PF", 2, positive),
                 Struct(
                     BasicPlatformSpdcf,
@@ -441,7 +441,7 @@ basic_sub = Struct(
         Optional(
             name="payload_spdcfs",
             condition=Bool("BASIC_PL_FLAG"),
-            body=PrefixedList(
+            rule=PrefixedList(
                 Int("NUM_BASIC_PL", 2, positive),
                 Struct(
                     BasicPayloadSpdcf,
@@ -459,7 +459,7 @@ basic_sub = Struct(
         Optional(
             name="sensor_spdcf",
             condition=Bool("BASIC_SR_FLAG"),
-            body=Int("BASIC_SR_SPDCF", 2, positive),
+            rule=Int("BASIC_SR_SPDCF", 2, positive),
         ),
     ],
 )
@@ -486,12 +486,12 @@ core_set = Struct(
                     Optional(
                         name="basic",
                         condition=Bool("BASIC_SUB_ALLOC"),
-                        body=basic_sub,
+                        rule=basic_sub,
                     ),
                     Optional(
                         name="post",
                         condition=Bool("POST_SUB_ALLOC"),
-                        body=post_sub,
+                        rule=post_sub,
                     ),
                 ],
             ),
@@ -535,22 +535,22 @@ cscsdb = Segment(
         Optional(
             name="io_calibration",
             condition=Bool("IO_CAL_AP"),
-            body=io_calibration,
+            rule=io_calibration,
         ),
         Optional(
             name="ts_calibration",
             condition=Bool("TS_CAL_AP"),
-            body=ts_calibration,
+            rule=ts_calibration,
         ),
         Optional(
             name="unmodeled",
             condition=Bool("UE_FLAG"),
-            body=unmodeled_error,
+            rule=unmodeled_error,
         ),
         Optional(
             name="spdcfs",
             condition=Bool("SPDCF_FLAG"),
-            body=PrefixedList(
+            rule=PrefixedList(
                 Int("NUM_SPDCF", 2, positive),
                 spdcf,
             ),
@@ -558,7 +558,7 @@ cscsdb = Segment(
         Optional(
             name="direct_covar",
             condition=Bool("DIRECT_COVARIANCE_FLAG"),
-            body=direct_cover,
+            rule=direct_cover,
         ),
         ReservedExtensions(
             Int("RESERVED_LEN", 9, nonnegative),

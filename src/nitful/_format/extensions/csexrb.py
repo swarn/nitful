@@ -339,7 +339,7 @@ csexrb = Struct(
                 Blankable(Int("CLOUD_COVER", 3)),
                 Conditional(
                     condition=lambda ctx: ctx.get("SENSOR_TYPE") == SensorType.FRAMER,
-                    body=Blankable(
+                    rule=Blankable(
                         BcsIntEnum("ROLLING_SHUTTER_FLAG", 1, enum=RollingShutter)
                     ),
                 ),

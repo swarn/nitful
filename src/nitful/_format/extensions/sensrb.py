@@ -496,44 +496,44 @@ sensrb = Struct(
                 Optional(
                     name="general_data",
                     condition=YNBool("GENERAL_DATA"),
-                    body=general_data,
+                    rule=general_data,
                 ),
                 Optional(
                     name="sensor_array",
                     condition=YNBool("SENSOR_ARRAY_DATA"),
-                    body=sensor_array_data,
+                    rule=sensor_array_data,
                 ),
                 Optional(
                     name="calibration",
                     condition=YNBool("SENSOR_CALIBRATION_DATA"),
-                    body=calibration_data,
+                    rule=calibration_data,
                 ),
                 Optional(
                     name="image_formation",
                     condition=YNBool("IMAGE_FORMATION_DATA"),
-                    body=image_formation_data,
+                    rule=image_formation_data,
                 ),
                 reference_data,
                 sensor_position,
                 Optional(
                     name="euler_angles",
                     condition=YNBool("ATTITUDE_EULER_ANGLES"),
-                    body=euler_angles,
+                    rule=euler_angles,
                 ),
                 Optional(
                     name="unit_vectors",
                     condition=YNBool("ATTITUDE_UNIT_VECTORS"),
-                    body=unit_vectors,
+                    rule=unit_vectors,
                 ),
                 Optional(
                     name="quaternion",
                     condition=YNBool("ATTITUDE_QUATERNION"),
-                    body=quaternion_spec,
+                    rule=quaternion_spec,
                 ),
                 Optional(
                     name="velocity",
                     condition=YNBool("SENSOR_VELOCITY_DATA"),
-                    body=sensor_velocity_spec,
+                    rule=sensor_velocity_spec,
                 ),
                 PrefixedList(
                     name="point_sets",

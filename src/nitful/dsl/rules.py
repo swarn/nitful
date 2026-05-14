@@ -485,6 +485,18 @@ class Combinator[T](Rule[T], ABC):
 
 
 @dataclass
+class Wrapper[T](Rule[T], ABC):
+    """A rule that encapsulates a single child rule and can be anonymous."""
+
+    rule: Rule[Any]
+    name: str = field(default="", kw_only=True)
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            self.name = self.rule.name
+
+
+@dataclass
 class Nothing(Field[None]):
 
     name: str = ""
@@ -1144,7 +1156,7 @@ class Dashable[T](Override[T, None]):
 
 
 @dataclass
-class Computed[T](Combinator[T]):
+class Computed[T](Wrapper[T]):
     """A rule that derives its value from the context during emit."""
 
     rule: Rule[T]
@@ -1167,7 +1179,7 @@ class Computed[T](Combinator[T]):
 
 
 @dataclass
-class Mapped[T, U](Combinator[U]):
+class Mapped[T, U](Wrapper[U]):
     """Generic mapping between encoded values and Python types.
 
     An "escape hatch" rule for handling unique values without needing to write
@@ -1178,11 +1190,6 @@ class Mapped[T, U](Combinator[U]):
     rule: Rule[T]
     decoder: Callable[[T], U]
     encoder: Callable[[U], T]
-
-    name: str = field(default="", init=False)
-
-    def __post_init__(self) -> None:
-        self.name = self.rule.name
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> U:
@@ -1353,38 +1360,38 @@ class PrefixedArray[T](Combinator[list[list[T]]]):
 
 
 @dataclass
-class Optional[T](Combinator[T | None]):
+class Optional[T](Wrapper[T | None]):
     """A boolean determines if the following body should exist."""
 
     condition: Rule[bool]
-    body: Rule[T]
+    rule: Rule[T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T | None:
         if not self.condition.parse(fd, ctx):
             return None
 
-        return self.body.parse(fd, ctx)
+        return self.rule.parse(fd, ctx)
 
     @override
     def _emit(self, value: T | None, *, ctx: EmitContext) -> list[Item]:
         if value is None:
             return self.condition.to_fields(False, ctx)
 
-        return [*self.condition.to_fields(True, ctx), *self.body.to_fields(value, ctx)]
+        return [*self.condition.to_fields(True, ctx), *self.rule.to_fields(value, ctx)]
 
 
 @dataclass
-class Conditional[T](Combinator[T | None]):
+class Conditional[T](Wrapper[T | None]):
     """Determine if the body should exist based on context."""
 
     condition: Callable[[Context], bool]
-    body: Rule[T]
+    rule: Rule[T]
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T | None:
         if self.condition(ctx):
-            return self.body.parse(fd, ctx)
+            return self.rule.parse(fd, ctx)
         return None
 
     @override
@@ -1396,7 +1403,7 @@ class Conditional[T](Combinator[T | None]):
             msg = "Condition evaluated to True, but no value was provided."
             raise ValueError(msg)
 
-        return self.body.to_fields(value, ctx)
+        return self.rule.to_fields(value, ctx)
 
 
 class DataclassProtocol(Protocol):
@@ -1463,7 +1470,7 @@ class Struct[T: DataclassProtocol](Combinator[T]):
 
 
 @dataclass
-class Packed[T](Combinator[T]):
+class Packed[T](Wrapper[T]):
     """Reads a chunk of bytes as a single field, then parses its internal structure.
 
     This is useful for several NITF fields that pack together multiple values
@@ -1471,17 +1478,14 @@ class Packed[T](Combinator[T]):
     side and use more structure on the Python side.
     """
 
-    outer_rule: Field[bytes]
+    rule: Rule[bytes]
     inner_rule: Rule[T]
-
-    def __post_init__(self) -> None:
-        self.name = self.outer_rule.name
 
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> T:
         # Read the bytes and log the outer field (e.g., Item("ILOC", b"..."))
         # to the context's `fields`.
-        raw_bytes = self.outer_rule.parse(fd, ctx)
+        raw_bytes = self.rule.parse(fd, ctx)
         inner_fd = io.BytesIO(raw_bytes)
 
         start_fields = len(ctx.fields)
@@ -1507,7 +1511,7 @@ class Packed[T](Combinator[T]):
             item.value for item in inner_items if isinstance(item.value, bytes)
         )
 
-        return self.outer_rule.to_fields(raw_bytes, ctx)
+        return self.rule.to_fields(raw_bytes, ctx)
 
 
 type _Condition = type | tuple[type, ...] | Callable[[Any, EmitContext], bool]
