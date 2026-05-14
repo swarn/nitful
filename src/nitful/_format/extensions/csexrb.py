@@ -136,16 +136,17 @@ class ExposureIndices(Combinator[list[int]]):
 
 
 imaging_operation = Struct(
-    ImagingOperation,
-    [
-        VarString(Int("CM_ID_LEN", 2, in_range(0, 99)), name="CM_ID"),
+    name="imaging_operations",
+    model_cls=ImagingOperation,
+    rules=[
         PrefixedString(Int("CM_ID_LEN", 2, in_range(0, 99)), name="CM_ID"),
         PrefixedString(Int("SENSOR_CONFIG_LEN", 2, in_range(0, 99)), name="SENSOR_CONFIG"),
         PrefixedString(Int("IMG_OP_ID_LEN", 2, in_range(0, 99)), name="IMG_OP_ID"),
         ExposureIndices(name="indices"),
         PrefixedList(
-            Int("NUM_QUALITY_METRICS", 2, in_range(0, 99)),
-            Struct(
+            name="quality_metrics",
+            count=Int("NUM_QUALITY_METRICS", 2, in_range(0, 99)),
+            body=Struct(
                 QualityMetric,
                 [
                     PrefixedString(
@@ -162,11 +163,9 @@ imaging_operation = Struct(
                         name="QUALITY_METRIC_VALUE",
                     ),
                 ],
-                name="quality_metrics",
             ),
         ),
     ],
-    name="imaging_operations",
 )
 
 collection_criteria = Struct(
@@ -249,8 +248,9 @@ framer_timing = Struct(
     FramerTiming,
     [
         Variant(
-            BcsIntEnum("TIME_STAMP_LOC", 1, enum=TimeStampLoc),
-            [
+            name="time",
+            tag_rule=BcsIntEnum("TIME_STAMP_LOC", 1, enum=TimeStampLoc),
+            cases=[
                 Case(TimeStampLoc.MTIMSA, MtimsaTiming, Struct(MtimsaTiming, [])),
                 Case(
                     TimeStampLoc.CSEXRB,

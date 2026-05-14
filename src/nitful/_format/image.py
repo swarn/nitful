@@ -140,7 +140,6 @@ compression = Struct(
     rules=[
         BcsString("IC", 2),
         Conditional(
-            name="COMRAT",
             condition=lambda ctx: ctx["IC"] not in {"NC", "NM"},
             rule=BcsString("COMRAT", 4),
         ),

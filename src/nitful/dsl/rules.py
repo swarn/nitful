@@ -349,7 +349,6 @@ class EmitContext(Context):
         return out_fields
 
 
-@dataclass
 class Rule[T](ABC):
     """A rule for encoding and decoding NITF data.
 
@@ -423,6 +422,8 @@ class Field[T](Rule[T], ABC):
     They have an optional `validate` field to check if a value is allowed in
     the NITF spec before writing.
     """
+
+    name: str
 
     # The specified size in bytes of the field according to the NITF spec.
     size: int
@@ -536,7 +537,7 @@ class Bool(Field[bool]):
 
     false: bytes = b"0"
     true: bytes = b"1"
-    size: int = field(default=1, kw_only=True)
+    size: int = 1
 
     @override
     def encode(self, decoded: bool) -> bytes:
@@ -1717,6 +1718,7 @@ class Alias[T](Rule[T]):
     Allows you to assign a rule with a given name to a different attribute.
     """
 
+    name: str
     rule: Rule[T]
 
     @override
