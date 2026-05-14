@@ -195,7 +195,7 @@ reference_data = Struct(
     rules=[
         Nullable(DecimalFloat("REFERENCE_TIME", 12)),
         Nullable(Int("REFERENCE_ROW", 8)),
-        Nullable(Int("REFERENCE_COL", 8)),
+        Nullable(Int("REFERENCE_COLUMN", 8)),
     ],
 )
 
@@ -204,12 +204,12 @@ sensor_position = Struct(
     name="position",
     model_cls=PositionData,
     rules=[
-        DecimalFloat("LATITUDE_OR_X", 11),
-        Nullable(DecimalFloat("LONGITUDE_OR_Y", 12)),
+        DecimalFloat("LATITUDE_OR_X", 11, sign=True),
+        Nullable(DecimalFloat("LONGITUDE_OR_Y", 12, sign=True)),
         Nullable(DecimalFloat("ALTITUDE_OR_Z", 11)),
-        DecimalFloat("SENSOR_X_OFFSET", 8),
-        DecimalFloat("SENSOR_Y_OFFSET", 8),
-        DecimalFloat("SENSOR_Z_OFFSET", 8),
+        DecimalFloat("SENSOR_X_OFFSET", 8, sign=True),
+        DecimalFloat("SENSOR_Y_OFFSET", 8, sign=True),
+        DecimalFloat("SENSOR_Z_OFFSET", 8, sign=True),
     ],
 )
 
@@ -221,9 +221,10 @@ euler_angles = Struct(
         DecimalFloat("SENSOR_ANGLE_1", 10, in_range(-180.0, 180.0)),
         DecimalFloat("SENSOR_ANGLE_2", 9, in_range(-90.0, 90.0)),
         DecimalFloat("SENSOR_ANGLE_3", 10, in_range(-180.0, 180.0)),
-        Blankable(DecimalFloat("PLATFORM_HEADING", 9, in_range(0, 360.0))),
-        Blankable(DecimalFloat("PLATFORM_PITCH", 9, in_range(0, 90.0))),
-        Blankable(DecimalFloat("PLATFORM_ROLL", 10, in_range(0, 180.0))),
+        YNBool("PLATFORM_RELATIVE"),
+        Blankable(DecimalFloat("PLATFORM_HEADING", 9, in_range(0, 360))),
+        Blankable(DecimalFloat("PLATFORM_PITCH", 9, in_range(-90, 90))),
+        Blankable(DecimalFloat("PLATFORM_ROLL", 10, in_range(-180, 180))),
     ],
 )
 
@@ -353,12 +354,12 @@ def get_rules(field_name: str) -> dict[str, Rule[Any]]:
         "05a": DecimalFloat(field_name, 12),
         "05b": Int(field_name, 8),
         "05c": Int(field_name, 8),
-        "06a": DecimalFloat(field_name, 11),
-        "06b": DecimalFloat(field_name, 12),
+        "06a": DecimalFloat(field_name, 11, sign=True),
+        "06b": DecimalFloat(field_name, 12, sign=True),
         "06c": DecimalFloat(field_name, 11),
-        "06d": DecimalFloat(field_name, 8),
-        "06e": DecimalFloat(field_name, 8),
-        "06f": DecimalFloat(field_name, 8),
+        "06d": DecimalFloat(field_name, 8, sign=True),
+        "06e": DecimalFloat(field_name, 8, sign=True),
+        "06f": DecimalFloat(field_name, 8, sign=True),
         "07a": Int(field_name, 1),
         "07b": DecimalFloat(field_name, 10),
         "07c": DecimalFloat(field_name, 9),
