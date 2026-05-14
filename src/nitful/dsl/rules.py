@@ -1257,6 +1257,28 @@ class SizedList[T](Combinator[list[T]]):
 
 
 @dataclass
+class PrefixedBytes(Combinator[bytes]):
+
+    len_rule: Rule[int]
+
+    @override
+    def _read(self, fd: BinaryIO, ctx: ParseContext) -> bytes:
+        length = self.len_rule.parse(fd, ctx)
+        if length == 0:
+            return b""
+        return FixedBytes(self.name, length).parse(fd, ctx)
+
+    @override
+    def _emit(self, value: bytes, *, ctx: EmitContext) -> list[Item]:
+        if not value:
+            return self.len_rule.to_fields(0, ctx)
+
+        fields = self.len_rule.to_fields(len(value), ctx)
+        fields.extend(FixedBytes(self.name, len(value)).to_fields(value, ctx))
+        return fields
+
+
+@dataclass
 class PrefixedList[T](Combinator[list[T]]):
     """Repeat a rule based on an initial field with a count."""
 
