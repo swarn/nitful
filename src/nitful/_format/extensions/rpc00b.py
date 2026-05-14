@@ -25,9 +25,9 @@ rpc00b_spec = Struct(
         FixedFloat("LONG_OFF", 9, ndigits=4, sign=True),
         Int("HEIGHT_OFF", 5, sign=True),
         Int("LINE_SCALE", 6, positive),
-        Int("SAMP_SCLE", 5, positive),
-        FixedFloat("LAT_SCALE", 8, nonzero, sign=True),
-        FixedFloat("LONG_SCALE", 9, nonzero, sign=True),
+        Int("SAMP_SCALE", 5, positive),
+        FixedFloat("LAT_SCALE", 8, nonzero, sign=True, ndigits=4),
+        FixedFloat("LONG_SCALE", 9, nonzero, sign=True, ndigits=4),
         Int("HEIGHT_SCALE", 5, nonzero, sign=True),
         SizedList(
             name="line_num_coeffs",
