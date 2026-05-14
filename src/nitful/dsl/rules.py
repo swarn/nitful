@@ -740,11 +740,12 @@ class DecimalFloat(Field[float]):
     - There is no single canonical format, so "round-tripping" values using
       `DecimalFloat` may not create byte-identical files.
     - This ignores any concept of "significant digits" in the representation.
-
     """
 
     _: KW_ONLY
+
     pad_char: Literal[" ", "0"] = "0"
+    sign: bool = False
 
     @override
     def decode(self, encoded: bytes) -> float:
@@ -753,12 +754,14 @@ class DecimalFloat(Field[float]):
     @override
     def encode(self, decoded: float) -> bytes:
 
+        plus = "+" if self.sign else ""
+
         # The Python format spec doesn't support formatting as decimal-form
         # number of arbitrary precision in a fixed width, so we must. Start
         # with the maximum possible precision and return the first
         # representation that fits when removing trailing zeroes.
         for precision in range(15, -1, -1):
-            s = f"{decoded:.{precision}f}"
+            s = f"{decoded:{plus}.{precision}f}"
 
             # Strip trailing zeros (and the decimal if it is hanging).
             if "." in s:
@@ -767,8 +770,8 @@ class DecimalFloat(Field[float]):
             # If it fits within the allowed byte size, pad and return.
             if len(s) <= self.size:
                 # If zero padding, make sure the sign stays at the front.
-                if self.pad_char == "0" and s.startswith("-"):
-                    padded = "-" + s[1:].rjust(self.size - 1, "0")
+                if self.pad_char == "0" and s[0] in ("-", "+"):
+                    padded = s[0] + s[1:].rjust(self.size - 1, "0")
                 else:
                     padded = s.rjust(self.size, self.pad_char)
 
