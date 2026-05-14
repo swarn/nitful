@@ -81,6 +81,9 @@ def read_des(fd: BinaryIO, header_len: int, data_len: int, ctx: ParseContext) ->
     desver = int(first[27:29].decode())
 
     if (desid, desver) in des_read_registry:
+        # Add the size of the DES to the context so the spec can read it.
+        ctx["_CURRENT_DES_DATA_LEN"] = data_len
+
         spec = des_read_registry[desid, desver]
         des = spec.parse(fd, ctx)
     else:
