@@ -47,20 +47,23 @@ class NumBands(Combinator[int]):
 
     MAX_NBANDS: ClassVar[int] = 9
 
+    nbands_rule: ClassVar[Rule[int]] = Int("NBANDS", 1)
+    xbands_rule: ClassVar[Rule[int]] = Int("XBANDS", 5)
+
     @override
     def _read(self, fd: BinaryIO, ctx: ParseContext) -> int:
-        nbands = Int("NBANDS", 1).parse(fd, ctx)
+        nbands = self.nbands_rule.parse(fd, ctx)
         if nbands == 0:
-            nbands = Int("XBANDS", 5).parse(fd, ctx)
+            nbands = self.xbands_rule.parse(fd, ctx)
         return nbands
 
     @override
     def _emit(self, value: int, *, ctx: EmitContext) -> list[Item]:
         if value <= self.MAX_NBANDS:
-            return Int("NBANDS", 1).to_fields(value, ctx)
+            return self.nbands_rule.to_fields(value, ctx)
 
-        nbands = Int("NBANDS", 1).to_fields(0, ctx)
-        xbands = Int("XBANDS", 4).to_fields(value, ctx)
+        nbands = self.nbands_rule.to_fields(0, ctx)
+        xbands = self.xbands_rule.to_fields(value, ctx)
         return nbands + xbands
 
 
