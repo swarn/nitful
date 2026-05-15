@@ -6,6 +6,7 @@ from datetime import datetime
 from .common import DES, TRE, EncryptionLevel, Security
 from .graphic import GraphicSegment
 from .image import ImageSegment
+from .text import TextSegment
 
 
 @dataclass(kw_only=True)
@@ -41,6 +42,7 @@ class NitfFile:
 
     image_segments: list[ImageSegment] = field(default_factory=list)
     graphic_segments: list[GraphicSegment] = field(default_factory=list)
+    text_segments: list[TextSegment] = field(default_factory=list)
     data_segments: list[DES] = field(default_factory=list)
 
 

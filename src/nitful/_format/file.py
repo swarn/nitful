@@ -31,6 +31,7 @@ from .des import des_to_fields, read_des
 from .graphic import graphic_to_fields, read_graphic_segment
 from .image import image_to_fields, read_image_segment
 from .shared import security_spec
+from .text import read_text_segment, text_to_fields
 from .tre import TreBlock
 
 
@@ -132,10 +133,11 @@ def read_file(fd: BinaryIO, ctx: ParseContext) -> NitfFile:
         for info in header["graphic_segment_info"]
     ]
 
-    # Not supporting text segments yet.
-    for info in header["text_segment_info"]:
-        text_size = info.LTSH + info.LT
-        fd.seek(text_size, SEEK_CUR)
+    # Read the text segments.
+    text_segments = [
+        read_text_segment(fd, ltsh=info.LTSH, lt=info.LT, ctx=ctx)
+        for info in header["text_segment_info"]
+    ]
 
     # Read the data segments. Again, each segment includes size info. The
     # factory function generates the correct DES type.
@@ -156,6 +158,7 @@ def read_file(fd: BinaryIO, ctx: ParseContext) -> NitfFile:
     kwargs = {k: header[k] for k in valid_keys}
     kwargs["image_segments"] = image_segments
     kwargs["graphic_segments"] = graphic_segments
+    kwargs["text_segments"] = text_segments
     kwargs["data_segments"] = data_segments
 
     return NitfFile(**kwargs)
@@ -167,6 +170,7 @@ def to_fields(nitf: NitfFile) -> list[Item]:
     # We know how many segments there are, but not their sizes.
     dummy_imgs = [ImageSegmentInfo(0, 0) for _ in nitf.image_segments]
     dummy_gss = [GraphicSegmentInfo(0, 0) for _ in nitf.graphic_segments]
+    dummy_tss = [TextSegmentInfo(0, 0) for _ in nitf.text_segments]
     dummy_dess = [DataSegmentInfo(0, 0) for _ in nitf.data_segments]
 
     # Generate the header fields with dummy values for all lengths.
@@ -176,7 +180,7 @@ def to_fields(nitf: NitfFile) -> list[Item]:
         "HL": 0,
         "image_segment_info": dummy_imgs,
         "graphic_segment_info": dummy_gss,
-        "text_segment_info": [],
+        "text_segment_info": dummy_tss,
         "data_segment_info": dummy_dess,
         "reserved_segment_info": [],
     })
@@ -213,7 +217,16 @@ def to_fields(nitf: NitfFile) -> list[Item]:
         segment_fields.extend(gs_subhead)
         segment_fields.extend(gs_data)
 
-    # Text segments will go here.
+    for i, ts in enumerate(nitf.text_segments):
+        ts_subhead, ts_data = text_to_fields(ts, ctx)
+
+        ltsh = item_size(ts_subhead)
+        field_map[f"LTSH[{i}]"].value = Int("LTSH", 4).encode(ltsh)
+        lt = item_size(ts_data)
+        field_map[f"LT[{i}]"].value = Int("LT", 5).encode(lt)
+
+        segment_fields.extend(ts_subhead)
+        segment_fields.extend(ts_data)
 
     for i, des in enumerate(nitf.data_segments):
         des_subhead, des_data = des_to_fields(des, ctx)
