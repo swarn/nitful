@@ -67,7 +67,7 @@ class ReservedSegmentInfo:
 
 header_spec = Group([
     Check(BcsString("FHDR", 4, one_of("NITF", "NSIF"))),
-    Check(BcsString("FVER", 5, one_of("01.01", "02.10"))),
+    Check(BcsString("FVER", 5, one_of("01.00", "01.01", "02.10"))),
     Int("CLEVEL", 2, one_of(3, 5, 6, 7, 9, 51, 54, 57)),
     BcsString("STYPE", 4, one_of("BF01")),
     BcsString("OSTAID", 10, notblank),
