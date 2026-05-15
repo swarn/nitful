@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass, field
 from typing import Any, BinaryIO, ClassVar, override
 
@@ -100,6 +101,22 @@ class Nullable[T](Override[T, None]):
         super().__init__(rule, {dash_bytes: None, space_bytes: None})
 
 
+# Modules 12 and 13 specify fields by their name in the NITF spec: "02a",
+# "03f", etc. Then, they list values that match the size and type of that
+# field. This dict is a registry of SENSRB fields.
+_field_registry: dict[str, Rule[Any]] = {}
+
+
+def idx[R: Rule[Any]](code: str, rule: R) -> R:
+    """Register a rule and return it unmodified for the spec."""
+    if code in _field_registry:
+        msg = f"Duplicate SENSRB index: {code}"
+        raise ValueError(msg)
+
+    _field_registry[code] = rule
+    return rule
+
+
 # Module 1
 general_data = Struct(
     GeneralData,
@@ -126,8 +143,8 @@ general_data = Struct(
         IsoDate("END_DATE"),
         DecimalFloat("END_TIME", 14, in_range(0, 86399.99999999)),
         Int("GENERATION_COUNT", 2, in_range(0, 99)),
-        Blankable(Dashable(IsoDate("GENERATION_DATE"))),
-        Blankable(Dashable(HMSeconds("GENERATION_TIME", 10))),
+        Nullable(IsoDate("GENERATION_DATE")),
+        Nullable(HMSeconds("GENERATION_TIME", 10)),
     ],
 )
 
@@ -135,15 +152,15 @@ general_data = Struct(
 sensor_array_data = Struct(
     SensorArrayData,
     [
-        BcsString("DETECTION", 20),
-        Int("ROW_DETECTORS", 8, positive),
-        Int("COLUMN_DETECTORS", 8, positive),
-        Dashable(DecimalFloat("ROW_METRIC", 8, positive)),
-        Dashable(DecimalFloat("COLUMN_METRIC", 8, positive)),
-        Dashable(DecimalFloat("FOCAL_LENGTH", 8, positive)),
-        Dashable(DecimalFloat("ROW_FOV", 8, nonnegative)),
-        Dashable(DecimalFloat("COLUMN_FOV", 8, nonnegative)),
-        YNBool("CALIBRATED"),
+        idx("02a", BcsString("DETECTION", 20)),
+        idx("02b", Int("ROW_DETECTORS", 8, positive)),
+        idx("02c", Int("COLUMN_DETECTORS", 8, positive)),
+        idx("02d", Dashable(DecimalFloat("ROW_METRIC", 8, positive))),
+        idx("02e", Dashable(DecimalFloat("COLUMN_METRIC", 8, positive))),
+        idx("02f", Dashable(DecimalFloat("FOCAL_LENGTH", 8, positive))),
+        idx("02g", Dashable(DecimalFloat("ROW_FOV", 8, nonnegative))),
+        idx("02h", Dashable(DecimalFloat("COLUMN_FOV", 8, nonnegative))),
+        idx("02i", YNBool("CALIBRATED")),
     ],
 )
 
@@ -151,18 +168,18 @@ sensor_array_data = Struct(
 calibration_data = Struct(
     CalibrationData,
     [
-        BcsStringEnum("CALIBRATION_UNIT", 2, enum=CalibrationUnit),
-        Dashable(DecimalFloat("PRINCIPAL_POINT_OFFSET_X", 9)),
-        Dashable(DecimalFloat("PRINCIPAL_POINT_OFFSET_Y", 9)),
-        Dashable(FlexFloat("RADIAL_DISTORT_1", 12)),
-        Dashable(FlexFloat("RADIAL_DISTORT_2", 12)),
-        Dashable(FlexFloat("RADIAL_DISTORT_3", 12)),
-        Dashable(DecimalFloat("RADIAL_DISTORT_LIMIT", 9, nonnegative)),
-        Dashable(FlexFloat("DECENT_DISTORT_1", 12)),
-        Dashable(FlexFloat("DECENT_DISTORT_2", 12)),
-        Dashable(FlexFloat("AFFINITY_DISTORT_1", 12)),
-        Dashable(FlexFloat("AFFINITY_DISTORT_2", 12)),
-        Dashable(IsoDate("CALIBRATION_DATE")),
+        idx("03a", BcsStringEnum("CALIBRATION_UNIT", 2, enum=CalibrationUnit)),
+        idx("03b", Dashable(DecimalFloat("PRINCIPAL_POINT_OFFSET_X", 9))),
+        idx("03c", Dashable(DecimalFloat("PRINCIPAL_POINT_OFFSET_Y", 9))),
+        idx("03d", Dashable(FlexFloat("RADIAL_DISTORT_1", 12))),
+        idx("03e", Dashable(FlexFloat("RADIAL_DISTORT_2", 12))),
+        idx("03f", Dashable(FlexFloat("RADIAL_DISTORT_3", 12))),
+        idx("03g", Dashable(DecimalFloat("RADIAL_DISTORT_LIMIT", 9, nonnegative))),
+        idx("03h", Dashable(FlexFloat("DECENT_DISTORT_1", 12))),
+        idx("03i", Dashable(FlexFloat("DECENT_DISTORT_2", 12))),
+        idx("03j", Dashable(FlexFloat("AFFINITY_DISTORT_1", 12))),
+        idx("03k", Dashable(FlexFloat("AFFINITY_DISTORT_2", 12))),
+        idx("03l", Dashable(IsoDate("CALIBRATION_DATE"))),
     ],
 )
 
@@ -170,16 +187,16 @@ calibration_data = Struct(
 image_formation_data = Struct(
     ImageFormationData,
     [
-        BcsString("METHOD", 15),
-        BcsString("MODE", 3),
-        Int("ROW_COUNT", 8),
-        Int("COLUMN_COUNT", 8),
-        Int("ROW_SET", 8),
-        Int("COLUMN_SET", 8),
-        DecimalFloat("ROW_RATE", 10),
-        DecimalFloat("COLUMN_RATE", 10),
-        Int("FIRST_PIXEL_ROW", 8),
-        Int("FIRST_PIXEL_COLUMN", 8),
+        idx("04a", BcsString("METHOD", 15)),
+        idx("04b", BcsString("MODE", 3)),
+        idx("04c", Int("ROW_COUNT", 8)),
+        idx("04d", Int("COLUMN_COUNT", 8)),
+        idx("04e", Int("ROW_SET", 8)),
+        idx("04f", Int("COLUMN_SET", 8)),
+        idx("04g", DecimalFloat("ROW_RATE", 10)),
+        idx("04h", DecimalFloat("COLUMN_RATE", 10)),
+        idx("04i", Int("FIRST_PIXEL_ROW", 8)),
+        idx("04j", Int("FIRST_PIXEL_COLUMN", 8)),
         PrefixedList(
             name="transform_params",
             count=Int("TRANSFORM_PARAMS", 1, in_range(0, 8)),
@@ -193,9 +210,9 @@ reference_data = Struct(
     name="reference",
     model_cls=ReferenceData,
     rules=[
-        Nullable(DecimalFloat("REFERENCE_TIME", 12)),
-        Nullable(Int("REFERENCE_ROW", 8)),
-        Nullable(Int("REFERENCE_COLUMN", 8)),
+        idx("05a", Nullable(DecimalFloat("REFERENCE_TIME", 12))),
+        idx("05b", Nullable(Int("REFERENCE_ROW", 8))),
+        idx("05c", Nullable(Int("REFERENCE_COLUMN", 8))),
     ],
 )
 
@@ -204,12 +221,12 @@ sensor_position = Struct(
     name="position",
     model_cls=PositionData,
     rules=[
-        DecimalFloat("LATITUDE_OR_X", 11, sign=True),
-        Nullable(DecimalFloat("LONGITUDE_OR_Y", 12, sign=True)),
-        Nullable(DecimalFloat("ALTITUDE_OR_Z", 11)),
-        DecimalFloat("SENSOR_X_OFFSET", 8, sign=True),
-        DecimalFloat("SENSOR_Y_OFFSET", 8, sign=True),
-        DecimalFloat("SENSOR_Z_OFFSET", 8, sign=True),
+        idx("06a", DecimalFloat("LATITUDE_OR_X", 11)),
+        idx("06b", Nullable(DecimalFloat("LONGITUDE_OR_Y", 12))),
+        idx("06c", Nullable(DecimalFloat("ALTITUDE_OR_Z", 11))),
+        idx("06d", DecimalFloat("SENSOR_X_OFFSET", 8)),
+        idx("06e", DecimalFloat("SENSOR_Y_OFFSET", 8)),
+        idx("06f", DecimalFloat("SENSOR_Z_OFFSET", 8)),
     ],
 )
 
@@ -217,14 +234,14 @@ sensor_position = Struct(
 euler_angles = Struct(
     EulerAngles,
     [
-        Int("SENSOR_ANGLE_MODEL", 1, one_of(1, 2, 3)),
-        DecimalFloat("SENSOR_ANGLE_1", 10, in_range(-180.0, 180.0)),
-        DecimalFloat("SENSOR_ANGLE_2", 9, in_range(-90.0, 90.0)),
-        DecimalFloat("SENSOR_ANGLE_3", 10, in_range(-180.0, 180.0)),
-        YNBool("PLATFORM_RELATIVE"),
-        Blankable(DecimalFloat("PLATFORM_HEADING", 9, in_range(0, 360))),
-        Blankable(DecimalFloat("PLATFORM_PITCH", 9, in_range(-90, 90))),
-        Blankable(DecimalFloat("PLATFORM_ROLL", 10, in_range(-180, 180))),
+        idx("07a", Int("SENSOR_ANGLE_MODEL", 1, one_of(1, 2, 3))),
+        idx("07b", DecimalFloat("SENSOR_ANGLE_1", 10, in_range(-180.0, 180.0))),
+        idx("07c", DecimalFloat("SENSOR_ANGLE_2", 9, in_range(-90.0, 90.0))),
+        idx("07d", DecimalFloat("SENSOR_ANGLE_3", 10, in_range(-180.0, 180.0))),
+        idx("07e", YNBool("PLATFORM_RELATIVE")),
+        idx("07f", Blankable(DecimalFloat("PLATFORM_HEADING", 9, in_range(0, 360)))),
+        idx("07g", Blankable(DecimalFloat("PLATFORM_PITCH", 9, in_range(-90, 90)))),
+        idx("07h", Blankable(DecimalFloat("PLATFORM_ROLL", 10, in_range(-180, 180)))),
     ],
 )
 
@@ -233,15 +250,15 @@ euler_angles = Struct(
 unit_vectors = Struct(
     UnitVectors,
     [
-        DecimalFloat("ICX_NORTH_OR_X", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICX_EAST_OR_Y", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICX_DOWN_OR_Z", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICY_NORTH_OR_X", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICY_EAST_OR_Y", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICY_DOWN_OR_Z", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICZ_NORTH_OR_X", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICZ_EAST_OR_Y", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ICZ_DOWN_OR_Z", 10, in_range(-1.0, 1.0)),
+        idx("08a", DecimalFloat("ICX_NORTH_OR_X", 10, in_range(-1.0, 1.0))),
+        idx("08b", DecimalFloat("ICX_EAST_OR_Y", 10, in_range(-1.0, 1.0))),
+        idx("08c", DecimalFloat("ICX_DOWN_OR_Z", 10, in_range(-1.0, 1.0))),
+        idx("08d", DecimalFloat("ICY_NORTH_OR_X", 10, in_range(-1.0, 1.0))),
+        idx("08e", DecimalFloat("ICY_EAST_OR_Y", 10, in_range(-1.0, 1.0))),
+        idx("08f", DecimalFloat("ICY_DOWN_OR_Z", 10, in_range(-1.0, 1.0))),
+        idx("08g", DecimalFloat("ICZ_NORTH_OR_X", 10, in_range(-1.0, 1.0))),
+        idx("08h", DecimalFloat("ICZ_EAST_OR_Y", 10, in_range(-1.0, 1.0))),
+        idx("08i", DecimalFloat("ICZ_DOWN_OR_Z", 10, in_range(-1.0, 1.0))),
     ],
 )
 
@@ -249,10 +266,10 @@ unit_vectors = Struct(
 quaternion_spec = Struct(
     Quaternion,
     [
-        DecimalFloat("ATTITUDE_Q1", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ATTITUDE_Q2", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ATTITUDE_Q3", 10, in_range(-1.0, 1.0)),
-        DecimalFloat("ATTITUDE_Q4", 10, in_range(-1.0, 1.0)),
+        idx("09a", DecimalFloat("ATTITUDE_Q1", 10, in_range(-1.0, 1.0))),
+        idx("09b", DecimalFloat("ATTITUDE_Q2", 10, in_range(-1.0, 1.0))),
+        idx("09c", DecimalFloat("ATTITUDE_Q3", 10, in_range(-1.0, 1.0))),
+        idx("09d", DecimalFloat("ATTITUDE_Q4", 10, in_range(-1.0, 1.0))),
     ],
 )
 
@@ -260,9 +277,9 @@ quaternion_spec = Struct(
 sensor_velocity_spec = Struct(
     SensorVelocity,
     [
-        DecimalFloat("VELOCITY_NORTH_OR_X", 9),
-        DecimalFloat("VELOCITY_EAST_OR_Y", 9),
-        DecimalFloat("VELOCITY_DOWN_OR_Z", 9),
+        idx("10a", DecimalFloat("VELOCITY_NORTH_OR_X", 9)),
+        idx("10b", DecimalFloat("VELOCITY_EAST_OR_Y", 9)),
+        idx("10c", DecimalFloat("VELOCITY_DOWN_OR_Z", 9)),
     ],
 )
 
@@ -289,101 +306,23 @@ point_set_spec = Struct(
     ],
 )
 
-# NOTE: I'm not enthusiastic about repeating all the Field definitions here,
-# but other approaches, e.g., adding all fields to a local registry while
-# defining them, makes the specs vastly harder to read.
-#
-# The NITF specifications for Module 12 and 13 specify "any appropriate" field
-# can be referenced. Rather than exploring which fields are appropriate, simply
-# add them all here.
 
+def get_switch_cases(new_name: str) -> dict[str, Rule[Any]]:
+    """Deep copy registered rules and patch their names for the Switch."""
 
-def get_rules(field_name: str) -> dict[str, Rule[Any]]:
-    """Generate a registry of Rules for most of the SENSRB fields.
+    # Recursively change the name of wrapped rules.
+    def _patch(node: Any) -> Any:
+        if hasattr(node, "name"):
+            node.name = new_name
 
-    Modules 12 and 13 specify fields by their name in the NITF spec: "02a",
-    "03f", etc. Then, they list values that match the size and type of
-    that field.
+        if hasattr(node, "rule"):
+            _patch(node.rule)
 
-    Our DSL spec for those modules use a `Switch` to find the correct rule for
-    parsing/emitting. This function generates the lookup tables used by those
-    switches. It injects the name (e.g. TIME_STAMP_VALUE) so that fields in
-    plain text dumps will be labeled corrrectly.
-    """
+        return node
+
     return {
-        "02a": BcsString(field_name, 20),
-        "02b": Int(field_name, 8),
-        "02c": Int(field_name, 8),
-        "02d": DecimalFloat(field_name, 8),
-        "02e": DecimalFloat(field_name, 8),
-        "02f": DecimalFloat(field_name, 8),
-        "02g": DecimalFloat(field_name, 8),
-        "02h": DecimalFloat(field_name, 8),
-        "02i": YNBool(field_name),
-        "03a": BcsString(field_name, 2),
-        "03b": DecimalFloat(field_name, 9),
-        "03c": DecimalFloat(field_name, 9),
-        "03d": FlexFloat(field_name, 12),
-        "03e": FlexFloat(field_name, 12),
-        "03f": FlexFloat(field_name, 12),
-        "03g": DecimalFloat(field_name, 9),
-        "03h": FlexFloat(field_name, 12),
-        "03i": FlexFloat(field_name, 12),
-        "03j": FlexFloat(field_name, 12),
-        "03k": FlexFloat(field_name, 12),
-        "03l": IsoDate(field_name),
-        "04a": BcsString(field_name, 15),
-        "04b": BcsString(field_name, 3),
-        "04c": Int(field_name, 8),
-        "04d": Int(field_name, 8),
-        "04e": Int(field_name, 8),
-        "04f": Int(field_name, 8),
-        "04g": DecimalFloat(field_name, 10),
-        "04h": DecimalFloat(field_name, 10),
-        "04i": Int(field_name, 8),
-        "04j": Int(field_name, 8),
-        "04k": Int(field_name, 1),
-        "04l": FlexFloat(field_name, 12),
-        "04m": FlexFloat(field_name, 12),
-        "04n": FlexFloat(field_name, 12),
-        "04o": FlexFloat(field_name, 12),
-        "04p": FlexFloat(field_name, 12),
-        "04q": FlexFloat(field_name, 12),
-        "04r": FlexFloat(field_name, 12),
-        "04s": FlexFloat(field_name, 12),
-        "05a": DecimalFloat(field_name, 12),
-        "05b": Int(field_name, 8),
-        "05c": Int(field_name, 8),
-        "06a": DecimalFloat(field_name, 11, sign=True),
-        "06b": DecimalFloat(field_name, 12, sign=True),
-        "06c": DecimalFloat(field_name, 11),
-        "06d": DecimalFloat(field_name, 8, sign=True),
-        "06e": DecimalFloat(field_name, 8, sign=True),
-        "06f": DecimalFloat(field_name, 8, sign=True),
-        "07a": Int(field_name, 1),
-        "07b": DecimalFloat(field_name, 10),
-        "07c": DecimalFloat(field_name, 9),
-        "07d": DecimalFloat(field_name, 10),
-        "07e": YNBool(field_name),
-        "07f": DecimalFloat(field_name, 9),
-        "07g": DecimalFloat(field_name, 9),
-        "07h": DecimalFloat(field_name, 10),
-        "08a": DecimalFloat(field_name, 10),
-        "08b": DecimalFloat(field_name, 10),
-        "08c": DecimalFloat(field_name, 10),
-        "08d": DecimalFloat(field_name, 10),
-        "08e": DecimalFloat(field_name, 10),
-        "08f": DecimalFloat(field_name, 10),
-        "08g": DecimalFloat(field_name, 10),
-        "08h": DecimalFloat(field_name, 10),
-        "08i": DecimalFloat(field_name, 10),
-        "09a": DecimalFloat(field_name, 10),
-        "09b": DecimalFloat(field_name, 10),
-        "09c": DecimalFloat(field_name, 10),
-        "09d": DecimalFloat(field_name, 10),
-        "10a": DecimalFloat(field_name, 9),
-        "10b": DecimalFloat(field_name, 9),
-        "10c": DecimalFloat(field_name, 9),
+        code: _patch(copy.deepcopy(original_rule))
+        for code, original_rule in _field_registry.items()
     }
 
 
@@ -402,7 +341,7 @@ time_stamp_data_set = Struct(
                     Switch(
                         name="TIME_STAMP_VALUE",
                         get_tag=lambda ctx: ctx["TIME_STAMP_TYPE"],
-                        cases=get_rules("TIME_STAMP_VALUE"),
+                        cases=get_switch_cases("TIME_STAMP_VALUE"),
                     ),
                 ],
             ),
@@ -426,7 +365,7 @@ pixel_reference_data_set = Struct(
                     Switch(
                         name="PIXEL_REFERENCE_VALUE",
                         get_tag=lambda ctx: ctx["PIXEL_REFERENCE_TYPE"],
-                        cases=get_rules("PIXEL_REFERENCE_VALUE"),
+                        cases=get_switch_cases("PIXEL_REFERENCE_VALUE"),
                     ),
                 ],
             ),
