@@ -73,7 +73,7 @@ class TimeDeltas(Combinator[list[int]]):
 
         fields = BinaryInt("NUMBER_DT", 4).to_fields(len(value), ctx)
 
-        for v in value:
+        for v in ctx.iterate(value):
             fields.extend(BinaryInt("DT", dt_size).to_fields(v, ctx))
 
         return fields
