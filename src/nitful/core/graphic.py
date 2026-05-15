@@ -8,7 +8,6 @@ from .common import TRE, EncryptionLevel, PixelCoord, Security
 
 @dataclass(kw_only=True)
 class GraphicSegment:
-    SY: str
     SID: str
     SNAME: str
     security: Security = field(default_factory=Security)
