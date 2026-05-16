@@ -17,8 +17,8 @@ publish:
     git tag v{{version}}
     git push origin v{{version}}
 
-test:
-    uv run pytest
+test *args:
+    uv run pytest {{args}}
 
 check-type:
     uv run mypy .

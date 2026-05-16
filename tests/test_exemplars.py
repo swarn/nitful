@@ -17,9 +17,10 @@ if not EXEMPLAR_DIR or not EXEMPLAR_DIR.exists():
 
 def get_exemplar_files():
     return [
-        pytest.param(filepath, id=filepath.name)
-        for filepath in sorted(EXEMPLAR_DIR.iterdir())
-        if filepath.suffix.lower() in [".ntf", ".nsf"]
+        pytest.param(filepath, id=str(filepath.relative_to(EXEMPLAR_DIR)))
+        for filepath in sorted(EXEMPLAR_DIR.rglob("*"))
+        if filepath.is_file()
+        and filepath.suffix.lower() in [".ntf", ".nsf"]
         and not filepath.name.startswith(".")
     ]
 
