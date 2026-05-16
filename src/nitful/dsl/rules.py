@@ -917,7 +917,9 @@ class IsoDate(Field[date]):
 
     @override
     def encode(self, decoded: date) -> bytes:
-        return format(decoded, self.format).encode()
+        # strftime does not pad %Y to four digits on glibc (linux). This may be
+        # fixed in Python 3.14.
+        return decoded.strftime(self.format).zfill(self.size).encode()
 
     @override
     def decode(self, encoded: bytes) -> date:
@@ -969,7 +971,7 @@ class ConcatDatetime(Field[datetime]):
 
     @override
     def encode(self, decoded: datetime) -> bytes:
-        return decoded.strftime(self.format).encode()
+        return decoded.strftime(self.format).zfill(self.size).encode()
 
     @override
     def decode(self, encoded: bytes) -> datetime:
