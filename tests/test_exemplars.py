@@ -6,7 +6,7 @@ import pytest
 from .helpers import run_strict_roundtrip, run_trace_symmetry  # pyrefly: ignore
 
 EXEMPLAR_DIR_ENV = os.environ.get("NITFUL_EXEMPLAR_DIR")
-EXEMPLAR_DIR = Path(EXEMPLAR_DIR_ENV) if EXEMPLAR_DIR_ENV else Path()
+EXEMPLAR_DIR = Path(EXEMPLAR_DIR_ENV) if EXEMPLAR_DIR_ENV else None
 
 if not EXEMPLAR_DIR or not EXEMPLAR_DIR.exists():
     pytest.skip(
@@ -16,6 +16,9 @@ if not EXEMPLAR_DIR or not EXEMPLAR_DIR.exists():
 
 
 def get_exemplar_files():
+    if not EXEMPLAR_DIR:
+        return []
+
     return [
         pytest.param(filepath, id=str(filepath.relative_to(EXEMPLAR_DIR)))
         for filepath in sorted(EXEMPLAR_DIR.rglob("*"))
