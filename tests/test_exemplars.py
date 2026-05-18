@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from .helpers import run_strict_roundtrip, run_trace_symmetry  # pyrefly: ignore
+from .helpers import run_roundtrip  # pyrefly: ignore
 
 EXEMPLAR_DIR_ENV = os.environ.get("NITFUL_EXEMPLAR_DIR")
 EXEMPLAR_DIR = Path(EXEMPLAR_DIR_ENV) if EXEMPLAR_DIR_ENV else None
@@ -30,5 +30,4 @@ def get_exemplar_files():
 
 @pytest.mark.parametrize("filepath", get_exemplar_files())
 def test_exemplar_file(filepath: Path):
-    run_trace_symmetry(filepath)
-    run_strict_roundtrip(filepath)
+    run_roundtrip(filepath, strict=True)

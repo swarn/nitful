@@ -124,7 +124,7 @@ class DeferredImageData:
     saves files and offsets within the files which can be read later.
     """
 
-    path: Path | str | None
+    path: Path | str | None = field(compare=False)
     offset: int
     length: int
 
@@ -149,7 +149,7 @@ class DeferredImageData:
 
     def read(self) -> bytes:
         if not self.path:
-            msg = "Cannot write deferred payload: original stream was not a named file."
+            msg = "Cannot read deferred payload: original stream was not a named file."
             raise RuntimeError(msg)
 
         with open(self.path, "rb") as source_fd:
